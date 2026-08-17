@@ -1,0 +1,42 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor declared in package.json engines, plus current and LTS.
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [18.17, 20, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      # The suite runs against a fake NIM upstream on loopback, so no API key
+      # and no network access to NVIDIA are needed.
+      - run: npm test
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Pack and install the tarball as a consumer would
+        run: |
+          npm pack
+          mkdir -p /tmp/consumer && cd /tmp/consumer
+          npm init -y > /dev/null
+          npm i "$GITHUB_WORKSPACE"/nimrun-*.tgz
+          ./node_modules/.bin/nimrun --version
+          ./node_modules/.bin/nimrun --help > /dev/null
+          echo "installed package is runnable"

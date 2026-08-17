@@ -42,8 +42,13 @@ export async function runClaude({
   // Claude Code does not know NIM model ids, so it assumes a 200k window unless told.
   if (contextTokens) env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = String(contextTokens);
 
+  // Always show the background model: when it is the main model, Claude Code's
+  // background calls spend that model's per-model quota, which is the usual cause
+  // of a 429 on the very first turn.
   const rows = [['model', ui.fg(ui.GLOW, model)]];
-  if (smallModel && smallModel !== model) rows.push(['fast', smallModel]);
+  rows.push(['fast', smallModel && smallModel !== model
+    ? smallModel
+    : `${ui.faint('same as model')} ${ui.faint(`${g.dot} --small <id> spares its quota`)}`]);
   rows.push(['proxy', `127.0.0.1:${port}  ${ui.faint(`anthropic ${g.swap} openai`)}`]);
   if (maxTokens) rows.push(['max out', String(maxTokens)]);
   if (contextTokens) rows.push(['context', contextTokens.toLocaleString('en-US')]);

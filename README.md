@@ -7,6 +7,7 @@
 [![npm](https://img.shields.io/npm/v/nimrun?color=76b900&labelColor=0b0e14)](https://www.npmjs.com/package/nimrun)
 [![license](https://img.shields.io/npm/l/nimrun?color=76b900&labelColor=0b0e14)](./LICENSE)
 [![node](https://img.shields.io/node/v/nimrun?color=76b900&labelColor=0b0e14)](https://nodejs.org)
+[![ci](https://github.com/ahmetatar/nimrun/actions/workflows/ci.yml/badge.svg)](https://github.com/ahmetatar/nimrun/actions/workflows/ci.yml)
 
 </div>
 
@@ -194,6 +195,10 @@ Everything decorative goes to **stderr**, so `nimrun models | grep coder` and
 npm test                      # proxy, error mapping, and a full spawn round trip
 node tools/screenshots.mjs    # regenerate docs/media from the real CLI output
 ```
+
+The suite runs against a fake NIM upstream on loopback — no API key, no network.
+CI runs it on Linux, macOS and Windows across Node 18.17 – 24, and separately packs
+the tarball and installs it as a consumer would.
 
 The screenshots are captured from the actual `ui`/`picker`/`run` code paths with a faked
 TTY, then rendered to SVG — so they cannot drift away from what the CLI prints.
