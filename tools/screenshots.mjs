@@ -48,14 +48,24 @@ const g = ui.glyph;
 
 // --- a representative slice of the real NIM catalog ---------------------
 const CATALOG = [
-  'qwen/qwen3-coder-480b-a35b-instruct', 'moonshotai/kimi-k2-instruct', 'deepseek-ai/deepseek-v3',
-  'meta/llama-3.3-70b-instruct', 'nvidia/llama-3.3-nemotron-super-49b-v1.5', 'mistralai/codestral-22b-v0.1',
-  'qwen/qwen2.5-coder-32b-instruct', 'openai/gpt-oss-120b', 'zai-org/glm-4.5-air', 'google/gemma-3-27b-it',
-  'meta/llama-4-maverick-17b-128e-instruct', 'writer/palmyra-creative-122b', 'microsoft/phi-4-mini-instruct',
-  'ibm/granite-3.0-8b-instruct', 'nvidia/nemotron-4-340b-instruct', 'ai21/jamba-1.5-large-instruct',
+  'nvidia/nemotron-3-super-120b-a12b', 'nvidia/nemotron-3-ultra-550b-a55b', 'nvidia/nemotron-3-nano-30b-a3b',
+  'z-ai/glm-5.2', 'moonshotai/kimi-k2.6', 'minimaxai/minimax-m3', 'openai/gpt-oss-120b',
+  'meta/llama-3.3-70b-instruct', 'meta/llama-3.1-8b-instruct', 'deepseek-ai/deepseek-v4-flash-0731',
+  'mistralai/mistral-large-2-instruct', 'poolside/laguna-xs-2.1', 'stepfun-ai/step-3.7-flash',
+  'google/gemma-3-12b-it', 'ibm/granite-3.0-8b-instruct', 'microsoft/phi-3.5-moe-instruct',
 ].map((id) => ({ id, owner: id.split('/')[0] }));
 
-const cfg = { favorites: ['moonshotai/kimi-k2-instruct'], lastModel: 'qwen/qwen3-coder-480b-a35b-instruct' };
+// verdicts as `nimrun check` actually returned them against the live catalog
+const cfg = {
+  favorites: ['z-ai/glm-5.2'],
+  lastModel: 'nvidia/nemotron-3-super-120b-a12b',
+  toolChecks: {
+    'nvidia/nemotron-3-super-120b-a12b': { ok: true },
+    'meta/llama-3.1-8b-instruct': { ok: true },
+    'z-ai/glm-5.2': { ok: true },
+    'moonshotai/kimi-k2.6': { ok: false, reason: 'not enabled for this account' },
+  },
+};
 const items = rankModels(CATALOG, cfg);
 
 // same renderer the CLI uses
@@ -66,7 +76,10 @@ const render = (m, { query = '', active = false } = {}) => {
   const badges = [];
   if (m.id === cfg.lastModel) badges.push(ui.cyan('last'));
   if (cfg.favorites.includes(m.id)) badges.push(ui.amber(g.star));
-  if (supportsTools(m.id)) badges.push(ui.fg(ui.GREEN, 'tools'));
+  const checked = cfg.toolChecks[m.id];
+  if (checked?.ok) badges.push(ui.fg(ui.GREEN, ui.bold('tools')));
+  else if (checked) badges.push(ui.red('no tools'));
+  else if (supportsTools(m.id)) badges.push(ui.fg(ui.GREEN, 'tools?'));
   const name = highlight(rest, query);
   const tail = badges.length ? `  ${ui.faint('[')}${badges.join(ui.faint('·'))}${ui.faint(']')}` : '';
   return { display: `${ui.faint(ui.pad(ui.truncate(vendor, VENDOR_W), VENDOR_W))}  ${active ? ui.bold(name) : name}${tail}`, plain: m.id };
@@ -81,13 +94,13 @@ const heroFrame = take();
 const pick = select({
   items,
   label: 'NVIDIA NIM',
-  hint: `${ui.fg(ui.GREEN, 'tools')} = known tool-calling ${g.dot} ${ui.amber(g.star)} = pinned`,
+  hint: `${ui.fg(ui.GREEN, ui.bold('tools'))} = verified ${g.dot} ${ui.fg(ui.GREEN, 'tools?')} = likely ${g.dot} ${ui.amber(g.star)} = pinned`,
   render,
 });
 emit('hero', heroFrame + take(), 'nimrun');
 
 // --- 2. picker mid-filter ----------------------------------------------
-for (const ch of 'coder') process.stdin.emit('keypress', ch, { name: ch });
+for (const ch of 'nemotron') process.stdin.emit('keypress', ch, { name: ch });
 take();
 process.stdin.emit('keypress', null, { name: 'down' });
 emit('picker', take(), 'nimrun — model picker');
@@ -128,7 +141,7 @@ const { runClaude } = await import('../src/run.js');
 take();
 await runClaude({
   apiKey: 'nvapi-demo',
-  model: 'qwen/qwen3-coder-480b-a35b-instruct',
+  model: 'nvidia/nemotron-3-super-120b-a12b',
   smallModel: 'meta/llama-3.1-8b-instruct',
   claudeArgs: [],
   bin: 'claude',

@@ -1,6 +1,6 @@
 {
   "name": "nimrun",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Run Claude Code against any NVIDIA NIM model. Pick a model, get a throwaway Anthropic-compatible proxy, launch claude — nothing is left behind when it exits.",
   "type": "module",
   "bin": {

@@ -15,6 +15,8 @@ const DEFAULTS = {
   favorites: [],
   smallModel: null,
   maxTokens: null,
+  contextTokens: null,
+  toolChecks: {},
 };
 
 export function loadConfig() {

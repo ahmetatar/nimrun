@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { loadConfig, saveConfig, resolveApiKey, CONFIG_FILE, nimBaseUrl } from './config.js';
-import { fetchModels, isChatModel, supportsTools, rankModels } from './models.js';
+import { fetchModels, isChatModel, supportsTools, probeTools, rankModels } from './models.js';
 import { select, prompt, highlight } from './picker.js';
 import { runClaude } from './run.js';
 import { createProxy, listen } from './proxy.js';
@@ -31,11 +31,13 @@ ${b('COMMANDS')}
   ${k('nimrun')} logout             ${d('remove the stored key')}
   ${k('nimrun')} status             ${d('show key, last model, and connectivity')}
   ${k('nimrun')} proxy              ${d('run only the translation proxy')}
+  ${k('nimrun')} check <model-id>   ${d('probe whether a model really makes tool calls')}
   ${k('nimrun')} fav <model-id>     ${d('pin a model to the top of the picker')}
 
 ${b('OPTIONS')}
   ${k('--small')} <model-id>   ${d("model for Claude Code's cheap background calls")}
   ${k('--max-tokens')} <n>     ${d('cap output tokens per response')}
+  ${k('--context')} <n>        ${d("the model's real context window (Claude Code assumes 200k)")}
   ${k('--tools-only')}         ${d('only show models known to handle tool calling')}
   ${k('--all')}                ${d('include non-chat endpoints in the picker')}
   ${k('--port')} <n>           ${d('fixed proxy port (default: ephemeral)')}
@@ -69,6 +71,7 @@ export function parseArgs(argv) {
     else if (a === '--no-banner') opts.flags.noBanner = true;
     else if (a === '--small') opts.flags.small = own[++i];
     else if (a === '--max-tokens') opts.flags.maxTokens = Number.parseInt(own[++i], 10);
+    else if (a === '--context') opts.flags.context = Number.parseInt(own[++i], 10);
     else if (a === '--port') opts.flags.port = Number.parseInt(own[++i], 10);
     else if (a === '--bin') opts.flags.bin = own[++i];
     else if (a.startsWith('-')) throw new Error(`unknown option: ${a}`);
@@ -104,7 +107,10 @@ async function loadCatalog(key, flags) {
     die(err.message);
   }
   let list = flags.all ? models : models.filter((m) => isChatModel(m.id));
-  if (flags.toolsOnly) list = list.filter((m) => supportsTools(m.id));
+  if (flags.toolsOnly) {
+    const checks = loadConfig().toolChecks;
+    list = list.filter((m) => (checks[m.id] ? checks[m.id].ok : supportsTools(m.id)));
+  }
   spin.stop();
   if (!list.length) die('no models matched those filters. Try --all.');
   return list;
@@ -122,7 +128,10 @@ function makeRenderer(cfg) {
     const badges = [];
     if (m.id === cfg.lastModel) badges.push(ui.cyan('last'));
     if (cfg.favorites.includes(m.id)) badges.push(ui.amber(g.star));
-    if (supportsTools(m.id)) badges.push(ui.fg(ui.GREEN, 'tools'));
+    const checked = cfg.toolChecks[m.id];
+    if (checked?.ok) badges.push(ui.fg(ui.GREEN, ui.bold('tools')));
+    else if (checked) badges.push(ui.red('no tools'));
+    else if (supportsTools(m.id)) badges.push(ui.fg(ui.GREEN, 'tools?'));
 
     const label = active ? ui.bold(name) : name;
     const tail = badges.length ? `  ${ui.faint('[')}${badges.join(ui.faint('·'))}${ui.faint(']')}` : '';
@@ -206,6 +215,20 @@ export async function main(argv) {
     return 0;
   }
 
+  if (cmd === 'check') {
+    const id = opts._[1] || cfg.lastModel;
+    if (!id) die('usage: nimrun check <model-id>');
+    const key = needKey();
+    const spin = ui.spinner(`asking ${id} to make a tool call…`);
+    const verdict = await probeTools(key, id);
+    spin.stop();
+    saveConfig({ toolChecks: { ...cfg.toolChecks, [id]: verdict } });
+    ui.write(verdict.ok
+      ? ui.ok(`${ui.bold(id)} makes tool calls ${ui.faint('— usable with Claude Code')}\n`)
+      : ui.warn(`${ui.bold(id)} did not make a tool call: ${verdict.reason}\n`));
+    return verdict.ok ? 0 : 1;
+  }
+
   if (cmd === 'fav') {
     const id = opts._[1];
     if (!id) die('usage: nimrun fav <model-id>');
@@ -228,7 +251,7 @@ export async function main(argv) {
       const chosen = await select({
         items: list,
         label: 'NVIDIA NIM',
-        hint: `${ui.fg(ui.GREEN, 'tools')} = known tool-calling ${g.dot} ${ui.amber(g.star)} = pinned`,
+        hint: `${ui.fg(ui.GREEN, ui.bold('tools'))} = verified ${g.dot} ${ui.fg(ui.GREEN, 'tools?')} = likely ${g.dot} ${ui.amber(g.star)} = pinned`,
         render: makeRenderer(cfg),
       });
       model = chosen.id;
@@ -240,6 +263,7 @@ export async function main(argv) {
 
   const smallModel = flags.small || cfg.smallModel || model;
   const maxTokens = flags.maxTokens || cfg.maxTokens || null;
+  const contextTokens = flags.context || cfg.contextTokens || null;
   saveConfig({ lastModel: model });
 
   if (cmd === 'proxy') {
@@ -261,16 +285,25 @@ export async function main(argv) {
     return 0;
   }
 
-  if (!supportsTools(model)) {
+  // Claude Code is useless without tool calls, and a family name does not prove
+  // support — so the first time a model is used, ask it to make one.
+  let verdict = cfg.toolChecks[model];
+  if (!verdict) {
+    const spin = ui.spinner(`checking whether ${model} makes tool calls…`);
+    verdict = await probeTools(key, model);
+    spin.stop();
+    saveConfig({ toolChecks: { ...loadConfig().toolChecks, [model]: verdict } });
+  }
+  if (!verdict.ok) {
     ui.write(ui.warn(
-      `${ui.bold(model)} is not in the known tool-calling list.\n` +
-      `  ${ui.faint('Claude Code needs tool calls to edit files; this model may only chat.')}\n` +
-      `  ${ui.faint('Use --tools-only to filter the picker.')}\n`
+      `${ui.bold(model)} did not make a tool call when asked: ${verdict.reason}.\n` +
+      `  ${ui.faint('Claude Code needs tool calls to read and edit files, so it will likely')}\n` +
+      `  ${ui.faint('be unable to do real work with this model. Re-check with')} ${ui.cyan(`nimrun check ${model}`)}${ui.faint('.')}\n`
     ));
   }
 
   return runClaude({
     apiKey: key, model, smallModel, maxTokens,
-    claudeArgs, debug: flags.debug, bin: flags.bin || 'claude', port: flags.port,
+    claudeArgs, debug: flags.debug, bin: flags.bin || 'claude', port: flags.port, contextTokens,
   });
 }

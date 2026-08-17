@@ -51,6 +51,12 @@ export class AnthropicStreamWriter {
     });
   }
 
+  /** Keeps the connection warm while a cold model spins up. */
+  ping() {
+    if (this.ended) return;
+    this.#send('ping', { type: 'ping' });
+  }
+
   #closeBlock() {
     if (this.openBlock === null) return;
     this.#send('content_block_stop', { type: 'content_block_stop', index: this.index });

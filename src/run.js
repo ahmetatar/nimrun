@@ -12,7 +12,7 @@ const { glyph: g } = ui;
  */
 export async function runClaude({
   apiKey, model, smallModel, maxTokens,
-  claudeArgs = [], debug = false, bin = 'claude', port: fixedPort = 0,
+  claudeArgs = [], debug = false, bin = 'claude', port: fixedPort = 0, contextTokens = null,
 }) {
   const token = crypto.randomBytes(24).toString('hex');
   const stats = { requests: 0, inputTokens: 0, outputTokens: 0, errors: 0 };
@@ -23,7 +23,6 @@ export async function runClaude({
     ...process.env,
     ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}`,
     ANTHROPIC_AUTH_TOKEN: token,
-    ANTHROPIC_API_KEY: token,
     ANTHROPIC_MODEL: model,
     ANTHROPIC_DEFAULT_OPUS_MODEL: model,
     ANTHROPIC_DEFAULT_SONNET_MODEL: model,
@@ -34,13 +33,19 @@ export async function runClaude({
     NIMRUN_MODEL: model,
   };
   // A stale credential in the ambient environment would outrank our local token.
+  // ANTHROPIC_API_KEY in particular makes Claude Code disable claude.ai connectors,
+  // so the auth token is the only credential we set.
+  delete env.ANTHROPIC_API_KEY;
   delete env.ANTHROPIC_AUTH_TOKEN_FILE;
   if (maxTokens) env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = String(maxTokens);
+  // Claude Code does not know NIM model ids, so it assumes a 200k window unless told.
+  if (contextTokens) env.CLAUDE_CODE_MAX_CONTEXT_TOKENS = String(contextTokens);
 
   const rows = [['model', ui.fg(ui.GLOW, model)]];
   if (smallModel && smallModel !== model) rows.push(['fast', smallModel]);
   rows.push(['proxy', `127.0.0.1:${port}  ${ui.faint(`anthropic ${g.swap} openai`)}`]);
   if (maxTokens) rows.push(['max out', String(maxTokens)]);
+  if (contextTokens) rows.push(['context', contextTokens.toLocaleString('en-US')]);
   ui.write(ui.card(rows, { title: `${g.bullet} session` }));
   ui.write(`  ${ui.faint(`starting ${bin} ${g.dot} settings restored on exit`)}\n\n`);
 

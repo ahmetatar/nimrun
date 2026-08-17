@@ -68,6 +68,7 @@ nimrun qwen/qwen3-coder-480b-a35b-instruct
 nimrun --tools-only                 # only models known to do tool calling
 nimrun models                       # print the catalog (plain stdout, pipe-safe)
 nimrun status                       # key, endpoint, connectivity, last model
+nimrun check z-ai/glm-5.2           # ask a model to make a real tool call
 nimrun fav moonshotai/kimi-k2-instruct   # pin to the top of the picker
 nimrun -- -p "summarize this repo"  # everything after -- goes to claude
 ```
@@ -93,6 +94,7 @@ Claude Code runs normally from here. On exit you get the tally, and the proxy is
 |---|---|
 | `--small <id>` | model for Claude Code's cheap background calls (titles, summaries) |
 | `--max-tokens <n>` | cap output tokens per response |
+| `--context <n>` | the model's real context window (Claude Code otherwise assumes 200k) |
 | `--tools-only` | only list models known to handle tool calling |
 | `--all` | include non-chat endpoints (embedding, rerank, vision) in the picker |
 | `--port <n>` | fixed proxy port instead of an ephemeral one |
@@ -117,13 +119,33 @@ eval "$(nimrun proxy meta/llama-3.3-70b-instruct)"
 
 ## Choosing a model
 
-Claude Code is an agentic tool: it is only useful with a model that reliably emits tool
-calls. `nimrun` tags those `[tools]` in the picker and sorts them first, `--tools-only`
-hides the rest, and picking an untagged model prints a warning. Models that stream a
-`<think>` scratchpad have it stripped before it reaches Claude Code.
+Claude Code is an agentic tool: it is useless with a model that will not emit tool
+calls. Family names do not prove support and NIM's catalog reports no capabilities, so
+`nimrun` **asks the model directly** — one tiny tool call, the first time you use it:
 
-Tool-call reliability still varies a lot between models — one that chats well can still
-fail to edit files. Try a few.
+```
+$ nimrun check nvidia/nemotron-3-super-120b-a12b
+✔ nvidia/nemotron-3-super-120b-a12b makes tool calls — usable with Claude Code
+
+$ nimrun check moonshotai/kimi-k2.6
+▲ moonshotai/kimi-k2.6 did not make a tool call: listed in the catalog but not
+  enabled for this account
+```
+
+Verdicts are cached in `~/.nimrun/config.json`, so the picker shows what is real:
+
+| Badge | Meaning |
+|---|---|
+| **`tools`** | probed and confirmed to make tool calls |
+| `tools?` | family suggests it should — not probed yet |
+| `no tools` | probed and it did not |
+
+`--tools-only` filters on the cached verdicts, falling back to the family guess for
+models you have not probed. Models that stream a `<think>` scratchpad have it stripped
+before it reaches Claude Code.
+
+Tool-call reliability still varies between models that pass the probe — one that makes
+a clean call once can still lose the thread on a long agentic session. Try a few.
 
 ## Terminal output
 
@@ -146,6 +168,13 @@ Everything decorative goes to **stderr**, so `nimrun models | grep coder` and
   tools are Anthropic-side features with no NIM equivalent; they are dropped, not faked.
 - `count_tokens` returns a character-based estimate — NIM has no token counting endpoint.
 - Rate limits and per-model quotas are NVIDIA's; `nimrun` passes `429`s straight through.
+- The catalog over-reports: `/v1/models` lists models your account cannot invoke, which
+  come back as `Not found for account`. `nimrun check` names that case explicitly.
+- A cold NIM model can take minutes to emit its first token. `nimrun` opens the response
+  stream as soon as the upstream accepts the request and sends keep-alive pings, so the
+  client does not time out waiting for headers.
+- Claude Code prints a notice that claude.ai connectors are disabled whenever an auth
+  source is set. That is unavoidable — pointing it at a different provider *is* setting one.
 - Your prompts and code go to NVIDIA's servers, under NVIDIA's terms — not Anthropic's.
 
 ## Development

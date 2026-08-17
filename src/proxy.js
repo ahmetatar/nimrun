@@ -114,14 +114,22 @@ export function createProxy({ apiKey, model, smallModel, maxTokens, token, debug
     const writer = new AnthropicStreamWriter(res, body.model || target);
     const parser = createSSEParser((payload) => writer.chunk(payload));
 
+    // Open the SSE response as soon as the upstream accepts the request. A cold
+    // NIM model can take minutes to emit its first token, and a client that has
+    // not seen response headers by then gives up with a headers timeout.
+    writer.start();
+    const ping = setInterval(() => writer.ping(), 15000);
+
     try {
       const decoder = new TextDecoder();
       for await (const piece of upstreamRes.body) {
         parser.push(decoder.decode(piece, { stream: true }));
       }
+      clearInterval(ping);
       writer.end();
       count(writer.usage);
     } catch (err) {
+      clearInterval(ping);
       if (abort.signal.aborted) return;
       if (stats) stats.errors += 1;
       writer.fail(err.message);
