@@ -9,25 +9,43 @@
   "files": [
     "bin",
     "src",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
     "node": ">=18.17"
   },
   "scripts": {
     "start": "node bin/nimrun.js",
-    "test": "node test/e2e.mjs && node test/errors.mjs && node test/session.mjs"
+    "test": "node test/e2e.mjs && node test/errors.mjs && node test/session.mjs",
+    "screenshots": "node tools/screenshots.mjs",
+    "prepublishOnly": "npm test"
   },
   "keywords": [
     "claude-code",
+    "claude",
     "nvidia",
     "nim",
     "llm",
     "cli",
     "anthropic",
     "proxy",
-    "openai"
+    "openai",
+    "ai",
+    "agent"
   ],
+  "author": "Ahmet Atar (https://github.com/ahmetatar)",
   "license": "MIT",
+  "homepage": "https://github.com/ahmetatar/nimrun#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ahmetatar/nimrun.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ahmetatar/nimrun/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {}
 }

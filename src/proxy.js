@@ -1,5 +1,5 @@
 import http from 'node:http';
-import { NIM_BASE_URL } from './config.js';
+import { nimBaseUrl } from './config.js';
 import { anthropicToOpenAI, openAIToAnthropic, estimateTokens } from './translate.js';
 import { AnthropicStreamWriter, createSSEParser } from './stream.js';
 
@@ -76,7 +76,7 @@ export function createProxy({ apiKey, model, smallModel, maxTokens, token, debug
 
     let upstreamRes;
     try {
-      upstreamRes = await fetch(`${NIM_BASE_URL}/chat/completions`, {
+      upstreamRes = await fetch(`${nimBaseUrl()}/chat/completions`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${apiKey}`,

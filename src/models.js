@@ -1,11 +1,11 @@
-import { NIM_BASE_URL } from './config.js';
+import { nimBaseUrl } from './config.js';
 
 /**
  * build.nvidia.com's catalog is served verbatim by the NIM /v1/models endpoint,
  * so we read it from the API instead of scraping the site.
  */
 export async function fetchModels(apiKey, { signal } = {}) {
-  const res = await fetch(`${NIM_BASE_URL}/models`, {
+  const res = await fetch(`${nimBaseUrl()}/models`, {
     headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
     signal,
   });

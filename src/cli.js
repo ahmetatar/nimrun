@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { loadConfig, saveConfig, resolveApiKey, CONFIG_FILE, NIM_BASE_URL } from './config.js';
+import { loadConfig, saveConfig, resolveApiKey, CONFIG_FILE, nimBaseUrl } from './config.js';
 import { fetchModels, isChatModel, supportsTools, rankModels } from './models.js';
 import { select, prompt, highlight } from './picker.js';
 import { runClaude } from './run.js';
@@ -100,7 +100,7 @@ async function loadCatalog(key, flags) {
   try {
     models = await fetchModels(key);
   } catch (err) {
-    spin.fail(`could not reach ${NIM_BASE_URL}`);
+    spin.fail(`could not reach ${nimBaseUrl()}`);
     die(err.message);
   }
   let list = flags.all ? models : models.filter((m) => isChatModel(m.id));
@@ -189,7 +189,7 @@ export async function main(argv) {
     }
     ui.write(ui.card([
       ['key', key ? `${ui.faint(key.slice(0, 9))}${'•'.repeat(8)} ${ui.faint(g.dot)} ${source}` : source],
-      ['endpoint', NIM_BASE_URL],
+      ['endpoint', nimBaseUrl()],
       ['reachable', reach],
       ['last model', cfg.lastModel || ui.faint('none yet')],
       ['favorites', cfg.favorites.length ? cfg.favorites.join(', ') : ui.faint('none')],

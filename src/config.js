@@ -2,7 +2,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-export const NIM_BASE_URL = process.env.NIM_BASE_URL || 'https://integrate.api.nvidia.com/v1';
+export const DEFAULT_NIM_BASE_URL = 'https://integrate.api.nvidia.com/v1';
+
+/** Read at call time so an override applied after import still takes effect. */
+export const nimBaseUrl = () => process.env.NIM_BASE_URL || DEFAULT_NIM_BASE_URL;
 export const CONFIG_DIR = process.env.NIMRUN_HOME || path.join(os.homedir(), '.nimrun');
 export const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
