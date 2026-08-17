@@ -1,44 +1,56 @@
+import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { loadConfig, saveConfig, resolveApiKey, CONFIG_FILE, NIM_BASE_URL } from './config.js';
 import { fetchModels, isChatModel, supportsTools, rankModels } from './models.js';
-import { select, prompt, color as c } from './picker.js';
+import { select, prompt, highlight } from './picker.js';
 import { runClaude } from './run.js';
 import { createProxy, listen } from './proxy.js';
+import * as ui from './ui.js';
 
-const HELP = `
-${c.bold}nimrun${c.reset} — run Claude Code on any NVIDIA NIM model
+const { glyph: g } = ui;
+const VERSION = JSON.parse(
+  fs.readFileSync(fileURLToPath(new URL('../package.json', import.meta.url)), 'utf8')
+).version;
 
-${c.bold}USAGE${c.reset}
-  nimrun [model] [options] [-- <claude args>]
+function help() {
+  const b = ui.bold;
+  const k = (s) => ui.green(s);
+  const d = ui.faint;
+  return `
+${ui.gradient('nimrun', [ui.GREEN, ui.GLOW])} ${d(g.dot)} ${ui.slate('run Claude Code on any NVIDIA NIM model')}
 
-${c.bold}COMMANDS${c.reset}
-  nimrun                    pick a model interactively, then launch Claude Code
-  nimrun <model-id>         launch straight into that model
-  nimrun --last             reuse the last model you picked
-  nimrun models             list available NIM models
-  nimrun login              store your NVIDIA API key in ${CONFIG_FILE}
-  nimrun logout             remove the stored key
-  nimrun proxy              run only the translation proxy and print the env vars
-  nimrun fav <model-id>     pin a model to the top of the picker
+${b('USAGE')}
+  ${k('nimrun')} [model] [options] ${d('[-- <claude args>]')}
 
-${c.bold}OPTIONS${c.reset}
-  --small <model-id>   model for Claude Code's cheap background calls
-  --max-tokens <n>     cap output tokens per response
-  --all                include non-chat endpoints in the picker
-  --tools-only         only show models known to handle tool calling
-  --port <n>           fixed proxy port (default: an ephemeral one)
-  --debug              log every proxied request to stderr
-  --bin <path>         Claude Code executable (default: claude)
-  -h, --help           this text
+${b('COMMANDS')}
+  ${k('nimrun')}                    ${d('pick a model, then launch Claude Code')}
+  ${k('nimrun')} <model-id>         ${d('launch straight into that model')}
+  ${k('nimrun')} --last             ${d('reuse the last model you picked')}
+  ${k('nimrun')} models             ${d('list available NIM models')}
+  ${k('nimrun')} login              ${d('paste and store your NVIDIA API key')}
+  ${k('nimrun')} logout             ${d('remove the stored key')}
+  ${k('nimrun')} status             ${d('show key, last model, and connectivity')}
+  ${k('nimrun')} proxy              ${d('run only the translation proxy')}
+  ${k('nimrun')} fav <model-id>     ${d('pin a model to the top of the picker')}
 
-${c.bold}NOTES${c.reset}
-  NIM speaks OpenAI, Claude Code speaks Anthropic. nimrun runs a loopback proxy
-  that translates between them for the life of the session, passes it to a child
-  process through env vars, and tears it down on exit — your Claude Code
-  settings files are never modified.
+${b('OPTIONS')}
+  ${k('--small')} <model-id>   ${d("model for Claude Code's cheap background calls")}
+  ${k('--max-tokens')} <n>     ${d('cap output tokens per response')}
+  ${k('--tools-only')}         ${d('only show models known to handle tool calling')}
+  ${k('--all')}                ${d('include non-chat endpoints in the picker')}
+  ${k('--port')} <n>           ${d('fixed proxy port (default: ephemeral)')}
+  ${k('--debug')}              ${d('log every proxied request to stderr')}
+  ${k('--bin')} <path>         ${d('Claude Code executable (default: claude)')}
+  ${k('-h, --help')}           ${d('this text')}
 
-  API key: NVIDIA_API_KEY env var, or 'nimrun login'.
-  Get one at https://build.nvidia.com/
+${b('HOW IT WORKS')}
+  ${d('NIM speaks OpenAI; Claude Code speaks Anthropic. nimrun runs a loopback')}
+  ${d('proxy that translates between them, hands it to a child process through')}
+  ${d('env vars, and tears it down on exit — your settings files are untouched.')}
+
+  ${d('Key:')} ${ui.cyan('NVIDIA_API_KEY')} ${d('or')} ${ui.cyan('nimrun login')} ${d(`${g.dot} get one at https://build.nvidia.com/`)}
 `;
+}
 
 export function parseArgs(argv) {
   const opts = { _: [], claudeArgs: [], flags: {} };
@@ -49,10 +61,12 @@ export function parseArgs(argv) {
   for (let i = 0; i < own.length; i++) {
     const a = own[i];
     if (a === '-h' || a === '--help') opts.flags.help = true;
+    else if (a === '-v' || a === '--version') opts.flags.version = true;
     else if (a === '--last') opts.flags.last = true;
     else if (a === '--all') opts.flags.all = true;
     else if (a === '--tools-only') opts.flags.toolsOnly = true;
     else if (a === '--debug') opts.flags.debug = true;
+    else if (a === '--no-banner') opts.flags.noBanner = true;
     else if (a === '--small') opts.flags.small = own[++i];
     else if (a === '--max-tokens') opts.flags.maxTokens = Number.parseInt(own[++i], 10);
     else if (a === '--port') opts.flags.port = Number.parseInt(own[++i], 10);
@@ -64,44 +78,60 @@ export function parseArgs(argv) {
 }
 
 function die(msg, code = 1) {
-  process.stderr.write(`${c.yellow}✖${c.reset} ${msg}\n`);
+  ui.write('\n' + ui.fail(msg) + '\n');
   process.exit(code);
 }
 
-async function needKey() {
+function needKey() {
   const key = resolveApiKey();
   if (key) return key;
   die(
-    `no NVIDIA API key found.\n` +
-    `  Run ${c.bold}nimrun login${c.reset}, or set ${c.bold}NVIDIA_API_KEY${c.reset}.\n` +
-    `  Keys come from https://build.nvidia.com/ (any model page → "Get API Key").`
+    `${ui.bold('No NVIDIA API key found.')}\n\n` +
+    `  ${ui.green(g.arrow)} run ${ui.bold('nimrun login')} and paste your key, or\n` +
+    `  ${ui.green(g.arrow)} export ${ui.bold('NVIDIA_API_KEY=nvapi-…')}\n\n` +
+    `  ${ui.faint('Sign in at https://build.nvidia.com/, open any model,')}\n` +
+    `  ${ui.faint('and use "Get API Key" — it starts with nvapi-.')}`
   );
 }
 
 async function loadCatalog(key, flags) {
-  process.stderr.write(`${c.dim}fetching NIM catalog…${c.reset}`);
+  const spin = ui.spinner('reading the NIM catalog…');
   let models;
   try {
     models = await fetchModels(key);
   } catch (err) {
-    process.stderr.write('\r\x1b[2K');
-    die(`could not reach ${NIM_BASE_URL}: ${err.message}`);
+    spin.fail(`could not reach ${NIM_BASE_URL}`);
+    die(err.message);
   }
-  process.stderr.write('\r\x1b[2K');
   let list = flags.all ? models : models.filter((m) => isChatModel(m.id));
   if (flags.toolsOnly) list = list.filter((m) => supportsTools(m.id));
-  if (!list.length) die('no models matched. Try --all.');
+  spin.stop();
+  if (!list.length) die('no models matched those filters. Try --all.');
   return list;
 }
 
-const renderModel = (favorites, lastModel) => (m) => {
-  const tags = [];
-  if (m.id === lastModel) tags.push(`${c.cyan}last${c.reset}`);
-  if (favorites.includes(m.id)) tags.push(`${c.yellow}★${c.reset}`);
-  if (supportsTools(m.id)) tags.push(`${c.green}tools${c.reset}`);
-  const suffix = tags.length ? ` ${c.dim}[${c.reset}${tags.join(c.dim + '·' + c.reset)}${c.dim}]${c.reset}` : '';
-  return { display: `${m.id}${suffix}`, plain: `${m.id} ${m.owner}` };
-};
+const VENDOR_W = 12;
+
+/** One catalog row: vendor column, model name, then capability badges. */
+function makeRenderer(cfg) {
+  return (m, { query = '', active = false } = {}) => {
+    const [vendor, rest] = m.id.includes('/') ? [m.id.split('/')[0], m.id.slice(m.id.indexOf('/') + 1)] : ['nvidia', m.id];
+    const vendorCell = ui.pad(ui.truncate(vendor, VENDOR_W), VENDOR_W);
+    const name = highlight(rest, query);
+
+    const badges = [];
+    if (m.id === cfg.lastModel) badges.push(ui.cyan('last'));
+    if (cfg.favorites.includes(m.id)) badges.push(ui.amber(g.star));
+    if (supportsTools(m.id)) badges.push(ui.fg(ui.GREEN, 'tools'));
+
+    const label = active ? ui.bold(name) : name;
+    const tail = badges.length ? `  ${ui.faint('[')}${badges.join(ui.faint('·'))}${ui.faint(']')}` : '';
+    return {
+      display: `${ui.faint(vendorCell)}  ${active ? ui.fg(ui.GLOW, '') : ''}${label}${tail}`,
+      plain: m.id,
+    };
+  };
+}
 
 export async function main(argv) {
   let opts;
@@ -111,28 +141,64 @@ export async function main(argv) {
     die(err.message);
   }
   const { flags, claudeArgs } = opts;
-  if (flags.help) { process.stdout.write(HELP); return 0; }
+
+  if (flags.version) { process.stdout.write(`${VERSION}\n`); return 0; }
+  if (flags.help) { ui.write(help()); return 0; }
 
   const cfg = loadConfig();
   const cmd = opts._[0];
+  const quiet = flags.noBanner || cmd === 'models';
+
+  if (!quiet) ui.hero({ version: VERSION });
 
   if (cmd === 'login') {
-    const key = await prompt('NVIDIA API key (nvapi-…): ', { silent: true });
-    if (!key.startsWith('nvapi-')) process.stderr.write(`${c.dim}note: NVIDIA keys usually start with "nvapi-".${c.reset}\n`);
-    if (!key) die('no key entered.');
+    ui.write(
+      `  ${ui.slate('Paste the API key from')} ${ui.cyan('https://build.nvidia.com/')}${ui.slate('.')}\n` +
+      `  ${ui.faint('Open any model page → "Get API Key". No browser sign-in happens here.')}\n\n`
+    );
+    const key = await prompt(`  ${ui.green(g.arrow)} key ${ui.faint('(hidden)')}: `, { silent: true });
+    if (!key) die('nothing entered.');
+    if (!key.startsWith('nvapi-')) ui.write(ui.warn(ui.faint('that does not look like an nvapi- key — saving it anyway')));
     saveConfig({ apiKey: key });
-    process.stderr.write(`${c.green}✔${c.reset} key saved to ${CONFIG_FILE} (0600)\n`);
+    ui.write('\n' + ui.ok(`saved to ${ui.bold(CONFIG_FILE)} ${ui.faint('(mode 0600)')}`));
+    ui.write(ui.note(`run ${ui.bold('nimrun')} to pick a model\n`));
     return 0;
   }
 
   if (cmd === 'logout') {
     saveConfig({ apiKey: null });
-    process.stderr.write(`${c.green}✔${c.reset} stored key removed\n`);
+    ui.write(ui.ok('stored key removed\n'));
+    return 0;
+  }
+
+  if (cmd === 'status') {
+    const envKey = process.env.NVIDIA_API_KEY || process.env.NIM_API_KEY;
+    const key = resolveApiKey(cfg);
+    const source = envKey ? 'NVIDIA_API_KEY (env)' : cfg.apiKey ? CONFIG_FILE : ui.red('not set');
+    let reach = ui.faint('not checked');
+    if (key) {
+      const spin = ui.spinner('checking NIM…');
+      try {
+        const models = await fetchModels(key);
+        spin.stop();
+        reach = ui.fg(ui.GREEN, `ok ${g.dot} ${models.length} models`);
+      } catch (err) {
+        spin.stop();
+        reach = ui.red(err.message.slice(0, 60));
+      }
+    }
+    ui.write(ui.card([
+      ['key', key ? `${ui.faint(key.slice(0, 9))}${'•'.repeat(8)} ${ui.faint(g.dot)} ${source}` : source],
+      ['endpoint', NIM_BASE_URL],
+      ['reachable', reach],
+      ['last model', cfg.lastModel || ui.faint('none yet')],
+      ['favorites', cfg.favorites.length ? cfg.favorites.join(', ') : ui.faint('none')],
+    ], { title: 'nimrun status' }) + '\n');
     return 0;
   }
 
   if (cmd === 'models') {
-    const key = await needKey();
+    const key = needKey();
     const list = await loadCatalog(key, flags);
     for (const m of rankModels(list, cfg)) {
       process.stdout.write(`${m.id}${supportsTools(m.id) ? '\t[tools]' : ''}\n`);
@@ -143,35 +209,33 @@ export async function main(argv) {
   if (cmd === 'fav') {
     const id = opts._[1];
     if (!id) die('usage: nimrun fav <model-id>');
-    const favorites = cfg.favorites.includes(id)
-      ? cfg.favorites.filter((f) => f !== id)
-      : [...cfg.favorites, id];
-    saveConfig({ favorites });
-    process.stderr.write(`${c.green}✔${c.reset} ${favorites.includes(id) ? 'pinned' : 'unpinned'} ${id}\n`);
+    const on = !cfg.favorites.includes(id);
+    saveConfig({ favorites: on ? [...cfg.favorites, id] : cfg.favorites.filter((f) => f !== id) });
+    ui.write(ui.ok(`${on ? 'pinned' : 'unpinned'} ${ui.bold(id)}\n`));
     return 0;
   }
 
   // --- resolve which model to run ---
-  const key = await needKey();
+  const key = needKey();
   let model = cmd && cmd !== 'proxy' ? cmd : null;
   if (!model && flags.last) {
     model = cfg.lastModel;
-    if (!model) die('no previous model recorded yet.');
+    if (!model) die('no previous model recorded yet — run nimrun and pick one.');
   }
   if (!model) {
     const list = rankModels(await loadCatalog(key, flags), cfg);
-    let chosen;
     try {
-      chosen = await select({
+      const chosen = await select({
         items: list,
-        label: 'NVIDIA NIM model',
-        render: renderModel(cfg.favorites, cfg.lastModel),
+        label: 'NVIDIA NIM',
+        hint: `${ui.fg(ui.GREEN, 'tools')} = known tool-calling ${g.dot} ${ui.amber(g.star)} = pinned`,
+        render: makeRenderer(cfg),
       });
+      model = chosen.id;
     } catch {
-      process.stderr.write(`${c.dim}cancelled${c.reset}\n`);
+      ui.write(ui.note('cancelled\n'));
       return 130;
     }
-    model = chosen.id;
   }
 
   const smallModel = flags.small || cfg.smallModel || model;
@@ -187,16 +251,22 @@ export async function main(argv) {
       `export ANTHROPIC_MODEL=${model}\n` +
       `export ANTHROPIC_SMALL_FAST_MODEL=${smallModel}\n`
     );
-    process.stderr.write(`\n${c.green}●${c.reset} proxy on :${port} → ${model} ${c.dim}(ctrl-c to stop)${c.reset}\n`);
+    ui.write(ui.card([
+      ['listening', `127.0.0.1:${port}`],
+      ['model', model],
+      ['mode', `anthropic ${g.swap} openai`],
+    ], { title: 'proxy' }));
+    ui.write(ui.note(`eval the lines above in your shell ${g.dot} ctrl-c to stop\n`));
     await new Promise(() => {});
     return 0;
   }
 
   if (!supportsTools(model)) {
-    process.stderr.write(
-      `${c.yellow}!${c.reset} ${model} is not in the known tool-calling list — Claude Code may not\n` +
-      `  be able to edit files with it. Use ${c.bold}--tools-only${c.reset} to filter the picker.\n`
-    );
+    ui.write(ui.warn(
+      `${ui.bold(model)} is not in the known tool-calling list.\n` +
+      `  ${ui.faint('Claude Code needs tool calls to edit files; this model may only chat.')}\n` +
+      `  ${ui.faint('Use --tools-only to filter the picker.')}\n`
+    ));
   }
 
   return runClaude({

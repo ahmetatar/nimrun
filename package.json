@@ -16,7 +16,7 @@
   },
   "scripts": {
     "start": "node bin/nimrun.js",
-    "test": "node test/e2e.mjs && node test/errors.mjs"
+    "test": "node test/e2e.mjs && node test/errors.mjs && node test/session.mjs"
   },
   "keywords": [
     "claude-code",

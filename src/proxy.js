@@ -26,8 +26,13 @@ function anthropicError(res, status, message, type = 'api_error') {
  * Local Anthropic-compatible endpoint that forwards to NIM. Bound to loopback and
  * gated on a per-run token so nothing else on the machine can use it.
  */
-export function createProxy({ apiKey, model, smallModel, maxTokens, token, debug = false }) {
+export function createProxy({ apiKey, model, smallModel, maxTokens, token, debug = false, stats = null }) {
   const log = (...a) => { if (debug) process.stderr.write(`[nimrun] ${a.join(' ')}\n`); };
+  const count = (usage) => {
+    if (!stats || !usage) return;
+    stats.inputTokens += usage.input_tokens || 0;
+    stats.outputTokens += usage.output_tokens || 0;
+  };
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
@@ -64,6 +69,8 @@ export function createProxy({ apiKey, model, smallModel, maxTokens, token, debug
     const upstream = anthropicToOpenAI(body, { model: target, maxTokens });
     log(`-> ${target} stream=${upstream.stream} msgs=${upstream.messages.length} tools=${upstream.tools?.length || 0}`);
 
+    if (stats) stats.requests += 1;
+
     const abort = new AbortController();
     req.on('close', () => { if (!res.writableEnded) abort.abort(); });
 
@@ -81,12 +88,14 @@ export function createProxy({ apiKey, model, smallModel, maxTokens, token, debug
       });
     } catch (err) {
       if (abort.signal.aborted) return;
+      if (stats) stats.errors += 1;
       return anthropicError(res, 502, `NIM request failed: ${err.message}`);
     }
 
     if (!upstreamRes.ok) {
       const text = await upstreamRes.text().catch(() => '');
       log(`<- ${upstreamRes.status} ${text.slice(0, 400)}`);
+      if (stats) stats.errors += 1;
       const status = [400, 401, 403, 404, 429].includes(upstreamRes.status) ? upstreamRes.status : 502;
       const type = status === 429 ? 'rate_limit_error'
         : status === 401 || status === 403 ? 'authentication_error'
@@ -97,7 +106,9 @@ export function createProxy({ apiKey, model, smallModel, maxTokens, token, debug
 
     if (!upstream.stream) {
       const json = await upstreamRes.json();
-      return sendJSON(res, 200, openAIToAnthropic(json, body.model || target));
+      const converted = openAIToAnthropic(json, body.model || target);
+      count(converted.usage);
+      return sendJSON(res, 200, converted);
     }
 
     const writer = new AnthropicStreamWriter(res, body.model || target);
@@ -109,8 +120,10 @@ export function createProxy({ apiKey, model, smallModel, maxTokens, token, debug
         parser.push(decoder.decode(piece, { stream: true }));
       }
       writer.end();
+      count(writer.usage);
     } catch (err) {
       if (abort.signal.aborted) return;
+      if (stats) stats.errors += 1;
       writer.fail(err.message);
     }
   });

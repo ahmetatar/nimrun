@@ -1,22 +1,27 @@
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import { createProxy, listen } from './proxy.js';
-import { color as c } from './picker.js';
+import * as ui from './ui.js';
+
+const { glyph: g } = ui;
 
 /**
  * Claude Code inherits its provider config purely from the environment, so we
  * never touch the user's settings files. When this process exits the child dies
  * with it, the proxy closes, and the machine is back to its previous state.
  */
-export async function runClaude({ apiKey, model, smallModel, maxTokens, claudeArgs = [], debug = false, bin = 'claude', port: fixedPort = 0 }) {
+export async function runClaude({
+  apiKey, model, smallModel, maxTokens,
+  claudeArgs = [], debug = false, bin = 'claude', port: fixedPort = 0,
+}) {
   const token = crypto.randomBytes(24).toString('hex');
-  const server = createProxy({ apiKey, model, smallModel, maxTokens, token, debug });
+  const stats = { requests: 0, inputTokens: 0, outputTokens: 0, errors: 0 };
+  const server = createProxy({ apiKey, model, smallModel, maxTokens, token, debug, stats });
   const port = await listen(server, { host: '127.0.0.1', port: fixedPort || 0 });
-  const baseUrl = `http://127.0.0.1:${port}`;
 
   const env = {
     ...process.env,
-    ANTHROPIC_BASE_URL: baseUrl,
+    ANTHROPIC_BASE_URL: `http://127.0.0.1:${port}`,
     ANTHROPIC_AUTH_TOKEN: token,
     ANTHROPIC_API_KEY: token,
     ANTHROPIC_MODEL: model,
@@ -28,14 +33,16 @@ export async function runClaude({ apiKey, model, smallModel, maxTokens, claudeAr
     NIMRUN_ACTIVE: '1',
     NIMRUN_MODEL: model,
   };
-  // A stale key in the ambient environment would outrank our local token.
+  // A stale credential in the ambient environment would outrank our local token.
   delete env.ANTHROPIC_AUTH_TOKEN_FILE;
   if (maxTokens) env.CLAUDE_CODE_MAX_OUTPUT_TOKENS = String(maxTokens);
 
-  process.stderr.write(
-    `${c.green}●${c.reset} nimrun → ${c.bold}${model}${c.reset}${smallModel && smallModel !== model ? ` ${c.dim}(fast: ${smallModel})${c.reset}` : ''}\n` +
-    `  ${c.dim}proxy ${baseUrl} · settings restored on exit${c.reset}\n\n`
-  );
+  const rows = [['model', ui.fg(ui.GLOW, model)]];
+  if (smallModel && smallModel !== model) rows.push(['fast', smallModel]);
+  rows.push(['proxy', `127.0.0.1:${port}  ${ui.faint(`anthropic ${g.swap} openai`)}`]);
+  if (maxTokens) rows.push(['max out', String(maxTokens)]);
+  ui.write(ui.card(rows, { title: `${g.bullet} session` }));
+  ui.write(`  ${ui.faint(`starting ${bin} ${g.dot} settings restored on exit`)}\n\n`);
 
   const child = spawn(bin, claudeArgs, { stdio: 'inherit', env });
 
@@ -48,21 +55,29 @@ export async function runClaude({ apiKey, model, smallModel, maxTokens, claudeAr
   const code = await new Promise((resolve) => {
     child.on('error', (err) => {
       if (err.code === 'ENOENT') {
-        process.stderr.write(
-          `${c.yellow}!${c.reset} '${bin}' not found on PATH.\n` +
-          `  Install it with: npm i -g @anthropic-ai/claude-code\n`
-        );
+        ui.write('\n' + ui.fail(`${ui.bold(bin)} is not on your PATH.`));
+        ui.write(`  ${ui.faint('install it with')} ${ui.cyan('npm i -g @anthropic-ai/claude-code')}\n`);
         resolve(127);
       } else {
-        process.stderr.write(`${c.yellow}!${c.reset} failed to start '${bin}': ${err.message}\n`);
+        ui.write('\n' + ui.fail(`could not start ${ui.bold(bin)}: ${err.message}`));
         resolve(1);
       }
     });
-    child.on('exit', (code, signal) => resolve(signal ? 128 + 1 : (code ?? 0)));
+    child.on('exit', (c, signal) => resolve(signal ? 129 : (c ?? 0)));
   });
 
   process.off('SIGINT', onInt);
   process.off('SIGTERM', onTerm);
   await new Promise((r) => server.close(r));
+
+  if (stats.requests) {
+    const n = (v) => v.toLocaleString('en-US');
+    ui.write(ui.card([
+      ['model', model],
+      ['requests', `${n(stats.requests)}${stats.errors ? `  ${ui.red(`${stats.errors} failed`)}` : ''}`],
+      ['tokens', `${ui.faint('in')} ${n(stats.inputTokens)}   ${ui.faint('out')} ${n(stats.outputTokens)}`],
+    ], { title: 'session ended', accent: ui.FAINT }));
+    ui.write(`  ${ui.faint('proxy closed · environment restored')}\n\n`);
+  }
   return code;
 }

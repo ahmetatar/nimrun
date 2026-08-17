@@ -1,13 +1,44 @@
-# nimrun
+```
+███╗   ██╗██╗███╗   ███╗██████╗ ██╗   ██╗███╗   ██╗
+████╗  ██║██║████╗ ████║██╔══██╗██║   ██║████╗  ██║
+██╔██╗ ██║██║██╔████╔██║██████╔╝██║   ██║██╔██╗ ██║
+██║╚██╗██║██║██║╚██╔╝██║██╔══██╗██║   ██║██║╚██╗██║
+██║ ╚████║██║██║ ╚═╝ ██║██║  ██║╚██████╔╝██║ ╚████║
+╚═╝  ╚═══╝╚═╝╚═╝     ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝
+Claude Code · any NVIDIA NIM model
+```
 
 Run **Claude Code** against any model on [build.nvidia.com](https://build.nvidia.com/models).
 
-Pick a model from NVIDIA's NIM catalog, and `nimrun` launches Claude Code as a child
-process wired to it. When that process exits, nothing is left behind — your Claude Code
-settings files are never touched.
+Pick a model from NVIDIA's NIM catalog and `nimrun` launches Claude Code wired to it.
+When that process exits, nothing is left behind — your Claude Code settings files are
+never touched.
 
 ```
 npx nimrun
+```
+
+```
+  NVIDIA NIM                                    ↑↓ move   ⏎ select   esc quit
+  ────────────────────────────────────────────────────────────────────────────
+  ❯ coder▏
+
+    qwen          qwen3-coder-480b-a35b-instruct  [last·tools]              ▐
+  ❯ qwen          qwen2.5-coder-32b-instruct  [tools]                       ▐
+    mistralai     codestral-22b-v0.1  [tools]                               │
+
+  3/137 models   ·   tools = known tool-calling · ★ = pinned
+```
+
+Then:
+
+```
+  ╭─ ● session ────────────────────────────────╮
+  │ model  qwen/qwen3-coder-480b-a35b-instruct │
+  │ fast   meta/llama-3.1-8b-instruct          │
+  │ proxy  127.0.0.1:57905  anthropic ⇄ openai │
+  ╰────────────────────────────────────────────╯
+  starting claude · settings restored on exit
 ```
 
 ## Why a proxy is involved
@@ -46,7 +77,8 @@ nimrun                              # pick a model, launch Claude Code
 nimrun --last                       # reuse your last pick
 nimrun qwen/qwen3-coder-480b-a35b-instruct
 nimrun --tools-only                 # only show models known to do tool calling
-nimrun models                       # print the catalog
+nimrun models                       # print the catalog (plain stdout, pipe-safe)
+nimrun status                       # key, endpoint, connectivity, last model
 nimrun fav moonshotai/kimi-k2-instruct   # pin to the top of the picker
 nimrun -- -p "summarize this repo"  # everything after -- goes to claude
 ```
@@ -65,6 +97,7 @@ The picker is type-to-filter: start typing to narrow, `↑↓` to move, `enter` 
 | `--debug` | log every proxied request to stderr |
 | `--bin <path>` | Claude Code executable (default `claude`) |
 | `--port <n>` | fixed proxy port instead of an ephemeral one |
+| `--no-banner` | skip the hero banner |
 
 ### Proxy-only mode
 
@@ -83,6 +116,21 @@ hides the rest, and picking an untagged model prints a warning. Models that stre
 
 Tool-call reliability still varies a lot between models — a model that chats well can
 still fail to edit files. Try a few.
+
+## Terminal output
+
+The banner, picker, and cards adapt rather than break:
+
+| Condition | Behaviour |
+|---|---|
+| `NO_COLOR` / not a TTY / `TERM=dumb` | all colour dropped |
+| 256-colour or 16-colour terminal | gradients quantised to the nearest palette |
+| terminal narrower than 55 columns | hero collapses to a one-line wordmark |
+| `NIMRUN_ASCII=1` or plain Windows console | box-drawing swapped for ASCII |
+| `NIMRUN_NO_BANNER` / `--no-banner` | banner suppressed entirely |
+
+Everything decorative goes to **stderr**, so `nimrun models | grep coder` and
+`nimrun --version` stay clean.
 
 ## Notes and limits
 
