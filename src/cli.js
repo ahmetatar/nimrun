@@ -225,7 +225,7 @@ export async function main(argv) {
     const spin = ui.spinner(`asking ${id} to make a tool call…`);
     const verdict = await probeTools(key, id);
     spin.stop();
-    saveConfig({ toolChecks: { ...cfg.toolChecks, [id]: verdict } });
+    if (!verdict.transient) saveConfig({ toolChecks: { ...cfg.toolChecks, [id]: verdict } });
     ui.write(verdict.ok
       ? ui.ok(`${ui.bold(id)} makes tool calls ${ui.faint('— usable with Claude Code')}\n`)
       : verdict.reachable === false
@@ -298,14 +298,17 @@ export async function main(argv) {
     const spin = ui.spinner(`checking whether ${model} makes tool calls…`);
     verdict = await probeTools(key, model);
     spin.stop();
-    saveConfig({ toolChecks: { ...loadConfig().toolChecks, [model]: verdict } });
+    // Only remember verdicts that say something about the model itself.
+    if (!verdict.transient) saveConfig({ toolChecks: { ...loadConfig().toolChecks, [model]: verdict } });
   }
   if (!verdict.ok) {
     ui.write(verdict.reachable === false
       ? ui.warn(
           `${ui.bold(model)} could not be reached: ${verdict.reason}.\n` +
-          `  ${ui.faint("NVIDIA's catalog lists models an account cannot invoke, and nothing in")}\n` +
-          `  ${ui.faint('the listing marks them — the only way to find out is to call one.')}\n`)
+          `  ${ui.faint(verdict.transient
+            ? 'That looks transient (upstream error or timeout), so it was not remembered.'
+            : "NVIDIA's catalog lists models an account cannot invoke, and nothing marks")}\n` +
+          `  ${ui.faint(verdict.transient ? 'Retrying may well succeed.' : 'them — the only way to find out is to call one.')}\n`)
       : ui.warn(
           `${ui.bold(model)} did not make a tool call when asked: ${verdict.reason}.\n` +
           `  ${ui.faint('Claude Code needs tool calls to read and edit files, so it will likely')}\n` +

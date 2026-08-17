@@ -150,6 +150,10 @@ before it reaches Claude Code.
 Tool-call reliability still varies between models that pass the probe — one that makes
 a clean call once can still lose the thread on a long agentic session. Try a few.
 
+Eight models were measured on a real Claude Code loop (run the tests, read the failure,
+fix the source, re-run): six solved it, and the cost between them varied by more than 2×.
+See [docs/nim-agent-benchmark.md](docs/nim-agent-benchmark.md).
+
 ## Terminal output
 
 The banner, picker, and cards adapt rather than break:

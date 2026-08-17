@@ -89,16 +89,25 @@ export async function probeTools(apiKey, model, { signal, timeoutMs = 60000 } = 
     });
     if (!res.ok) {
       const body = await res.text().catch(() => '');
-      const detail = /Not found for account/.test(body)
-        ? 'listed in the catalog but not enabled for this account'
-        : `HTTP ${res.status}`;
-      return { ok: false, reachable: false, reason: detail };
+      if (/Not found for account/.test(body)) {
+        return { ok: false, reachable: false, reason: 'listed in the catalog but not enabled for this account' };
+      }
+      // A 5xx or a rate limit says nothing about the model itself, so the verdict
+      // must not be remembered — the endpoint may be healthy a minute later.
+      const transient = res.status >= 500 || res.status === 429;
+      return { ok: false, reachable: false, transient, reason: `HTTP ${res.status}` };
     }
     const json = await res.json();
     const calls = json?.choices?.[0]?.message?.tool_calls;
     return { ok: Array.isArray(calls) && calls.length > 0, reachable: true, reason: 'answered in prose instead of calling the tool' };
   } catch (err) {
-    return { ok: false, reachable: false, reason: err.name === 'AbortError' ? `no response within ${timeoutMs / 1000}s` : err.message };
+    // Network failures and timeouts are conditions of the moment, not verdicts.
+    return {
+      ok: false,
+      reachable: false,
+      transient: true,
+      reason: err.name === 'AbortError' ? `no response within ${timeoutMs / 1000}s` : err.message,
+    };
   } finally {
     clearTimeout(timer);
   }
