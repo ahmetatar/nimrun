@@ -138,7 +138,8 @@ Verdicts are cached in `~/.nimrun/config.json`, so the picker shows what is real
 |---|---|
 | **`tools`** | probed and confirmed to make tool calls |
 | `tools?` | family suggests it should — not probed yet |
-| `no tools` | probed and it did not |
+| `no tools` | reachable, but answered in prose instead of calling the tool |
+| `unavailable` | listed in the catalog, but your account cannot invoke it |
 
 `--tools-only` filters on the cached verdicts, falling back to the family guess for
 models you have not probed. Models that stream a `<think>` scratchpad have it stripped
@@ -168,8 +169,11 @@ Everything decorative goes to **stderr**, so `nimrun models | grep coder` and
   tools are Anthropic-side features with no NIM equivalent; they are dropped, not faked.
 - `count_tokens` returns a character-based estimate — NIM has no token counting endpoint.
 - Rate limits and per-model quotas are NVIDIA's; `nimrun` passes `429`s straight through.
-- The catalog over-reports: `/v1/models` lists models your account cannot invoke, which
-  come back as `Not found for account`. `nimrun check` names that case explicitly.
+- The catalog over-reports. `/v1/models` lists models your account cannot invoke, and the
+  records are byte-identical to working ones — `{id, object, created, owned_by}`, nothing
+  that marks availability. There is no way to filter them out in advance; the only signal
+  is a real call, which is what `nimrun check` makes. The model list itself is NVIDIA's own
+  `/v1/models` verbatim, minus embedding/rerank/guard endpoints (`--all` keeps those).
 - A cold NIM model can take minutes to emit its first token. `nimrun` opens the response
   stream as soon as the upstream accepts the request and sends keep-alive pings, so the
   client does not time out waiting for headers.

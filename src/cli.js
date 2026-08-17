@@ -130,7 +130,8 @@ function makeRenderer(cfg) {
     if (cfg.favorites.includes(m.id)) badges.push(ui.amber(g.star));
     const checked = cfg.toolChecks[m.id];
     if (checked?.ok) badges.push(ui.fg(ui.GREEN, ui.bold('tools')));
-    else if (checked) badges.push(ui.red('no tools'));
+    else if (checked && checked.reachable === false) badges.push(ui.red('unavailable'));
+    else if (checked) badges.push(ui.amber('no tools'));
     else if (supportsTools(m.id)) badges.push(ui.fg(ui.GREEN, 'tools?'));
 
     const label = active ? ui.bold(name) : name;
@@ -225,7 +226,9 @@ export async function main(argv) {
     saveConfig({ toolChecks: { ...cfg.toolChecks, [id]: verdict } });
     ui.write(verdict.ok
       ? ui.ok(`${ui.bold(id)} makes tool calls ${ui.faint('— usable with Claude Code')}\n`)
-      : ui.warn(`${ui.bold(id)} did not make a tool call: ${verdict.reason}\n`));
+      : verdict.reachable === false
+        ? ui.warn(`${ui.bold(id)} is unavailable: ${verdict.reason}\n`)
+        : ui.warn(`${ui.bold(id)} did not make a tool call: ${verdict.reason}\n`));
     return verdict.ok ? 0 : 1;
   }
 
@@ -251,7 +254,7 @@ export async function main(argv) {
       const chosen = await select({
         items: list,
         label: 'NVIDIA NIM',
-        hint: `${ui.fg(ui.GREEN, ui.bold('tools'))} = verified ${g.dot} ${ui.fg(ui.GREEN, 'tools?')} = likely ${g.dot} ${ui.amber(g.star)} = pinned`,
+        hint: `${ui.fg(ui.GREEN, ui.bold('tools'))} = verified ${g.dot} ${ui.fg(ui.GREEN, 'tools?')} = likely ${g.dot} ${ui.red('unavailable')} = not on your account`,
         render: makeRenderer(cfg),
       });
       model = chosen.id;
@@ -295,11 +298,15 @@ export async function main(argv) {
     saveConfig({ toolChecks: { ...loadConfig().toolChecks, [model]: verdict } });
   }
   if (!verdict.ok) {
-    ui.write(ui.warn(
-      `${ui.bold(model)} did not make a tool call when asked: ${verdict.reason}.\n` +
-      `  ${ui.faint('Claude Code needs tool calls to read and edit files, so it will likely')}\n` +
-      `  ${ui.faint('be unable to do real work with this model. Re-check with')} ${ui.cyan(`nimrun check ${model}`)}${ui.faint('.')}\n`
-    ));
+    ui.write(verdict.reachable === false
+      ? ui.warn(
+          `${ui.bold(model)} could not be reached: ${verdict.reason}.\n` +
+          `  ${ui.faint("NVIDIA's catalog lists models an account cannot invoke, and nothing in")}\n` +
+          `  ${ui.faint('the listing marks them — the only way to find out is to call one.')}\n`)
+      : ui.warn(
+          `${ui.bold(model)} did not make a tool call when asked: ${verdict.reason}.\n` +
+          `  ${ui.faint('Claude Code needs tool calls to read and edit files, so it will likely')}\n` +
+          `  ${ui.faint('be unable to do real work with this model. Re-check with')} ${ui.cyan(`nimrun check ${model}`)}${ui.faint('.')}\n`));
   }
 
   return runClaude({
