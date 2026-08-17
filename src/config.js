@@ -16,6 +16,7 @@ const DEFAULTS = {
   smallModel: null,
   maxTokens: null,
   contextTokens: null,
+  concurrency: null,
   toolChecks: {},
 };
 

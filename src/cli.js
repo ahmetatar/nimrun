@@ -38,6 +38,7 @@ ${b('OPTIONS')}
   ${k('--small')} <model-id>   ${d("model for Claude Code's cheap background calls")}
   ${k('--max-tokens')} <n>     ${d('cap output tokens per response')}
   ${k('--context')} <n>        ${d("the model's real context window (Claude Code assumes 200k)")}
+  ${k('--concurrency')} <n>    ${d('upstream requests in flight at once (default 1; NIM limits these)')}
   ${k('--tools-only')}         ${d('only show models known to handle tool calling')}
   ${k('--all')}                ${d('include non-chat endpoints in the picker')}
   ${k('--port')} <n>           ${d('fixed proxy port (default: ephemeral)')}
@@ -73,6 +74,7 @@ export function parseArgs(argv) {
     else if (a === '--max-tokens') opts.flags.maxTokens = Number.parseInt(own[++i], 10);
     else if (a === '--context') opts.flags.context = Number.parseInt(own[++i], 10);
     else if (a === '--port') opts.flags.port = Number.parseInt(own[++i], 10);
+    else if (a === '--concurrency') opts.flags.concurrency = Number.parseInt(own[++i], 10);
     else if (a === '--bin') opts.flags.bin = own[++i];
     else if (a.startsWith('-')) throw new Error(`unknown option: ${a}`);
     else opts._.push(a);
@@ -267,10 +269,11 @@ export async function main(argv) {
   const smallModel = flags.small || cfg.smallModel || model;
   const maxTokens = flags.maxTokens || cfg.maxTokens || null;
   const contextTokens = flags.context || cfg.contextTokens || null;
+  const concurrency = flags.concurrency || cfg.concurrency || 1;
   saveConfig({ lastModel: model });
 
   if (cmd === 'proxy') {
-    const server = createProxy({ apiKey: key, model, smallModel, maxTokens, token: null, debug: flags.debug });
+    const server = createProxy({ apiKey: key, model, smallModel, maxTokens, token: null, debug: flags.debug, concurrency });
     const port = await listen(server, { port: flags.port || 0 });
     process.stdout.write(
       `export ANTHROPIC_BASE_URL=http://127.0.0.1:${port}\n` +
@@ -311,6 +314,6 @@ export async function main(argv) {
 
   return runClaude({
     apiKey: key, model, smallModel, maxTokens,
-    claudeArgs, debug: flags.debug, bin: flags.bin || 'claude', port: flags.port, contextTokens,
+    claudeArgs, debug: flags.debug, bin: flags.bin || 'claude', port: flags.port, contextTokens, concurrency,
   });
 }

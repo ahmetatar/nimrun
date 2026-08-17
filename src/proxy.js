@@ -3,6 +3,40 @@ import { nimBaseUrl } from './config.js';
 import { anthropicToOpenAI, openAIToAnthropic, estimateTokens } from './translate.js';
 import { AnthropicStreamWriter, createSSEParser } from './stream.js';
 
+/**
+ * Caps how many requests are in flight upstream at once. NIM enforces a
+ * per-model concurrency limit — several models allow exactly one — and Claude
+ * Code fires background calls alongside the main query, so without this the
+ * very first turn can 429.
+ */
+function createLimiter(max) {
+  let active = 0;
+  const waiting = [];
+  const pump = () => {
+    while (active < max && waiting.length) {
+      active += 1;
+      waiting.shift()();
+    }
+  };
+  return {
+    acquire() {
+      return new Promise((resolve) => {
+        let released = false;
+        waiting.push(() => resolve(() => {
+          if (released) return;
+          released = true;
+          active -= 1;
+          pump();
+        }));
+        pump();
+      });
+    },
+    get queued() { return waiting.length; },
+  };
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 function readBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -26,7 +60,11 @@ function anthropicError(res, status, message, type = 'api_error') {
  * Local Anthropic-compatible endpoint that forwards to NIM. Bound to loopback and
  * gated on a per-run token so nothing else on the machine can use it.
  */
-export function createProxy({ apiKey, model, smallModel, maxTokens, token, debug = false, stats = null }) {
+export function createProxy({
+  apiKey, model, smallModel, maxTokens, token,
+  debug = false, stats = null, concurrency = 1, retries = 4,
+}) {
+  const limiter = createLimiter(Math.max(1, concurrency));
   const log = (...a) => { if (debug) process.stderr.write(`[nimrun] ${a.join(' ')}\n`); };
   const count = (usage) => {
     if (!stats || !usage) return;
@@ -74,19 +112,37 @@ export function createProxy({ apiKey, model, smallModel, maxTokens, token, debug
     const abort = new AbortController();
     req.on('close', () => { if (!res.writableEnded) abort.abort(); });
 
+    if (limiter.queued) log(`queued behind ${limiter.queued} request(s)`);
+    const release = await limiter.acquire();
+    if (abort.signal.aborted) { release(); return; }
+
+    const callUpstream = () => fetch(`${nimBaseUrl()}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        Accept: upstream.stream ? 'text/event-stream' : 'application/json',
+      },
+      body: JSON.stringify(upstream),
+      signal: abort.signal,
+    });
+
     let upstreamRes;
     try {
-      upstreamRes = await fetch(`${nimBaseUrl()}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-          Accept: upstream.stream ? 'text/event-stream' : 'application/json',
-        },
-        body: JSON.stringify(upstream),
-        signal: abort.signal,
-      });
+      upstreamRes = await callUpstream();
+      // NIM rejects bursts rather than queueing them, so absorb 429s here instead
+      // of surfacing a failed turn to Claude Code.
+      for (let attempt = 0; upstreamRes.status === 429 && attempt < retries; attempt++) {
+        const header = Number.parseFloat(upstreamRes.headers.get('retry-after') || '');
+        const wait = Number.isFinite(header) ? header * 1000 : 2 ** attempt * 1000 + Math.random() * 400;
+        log(`429 from upstream, retrying in ${Math.round(wait)}ms (${attempt + 1}/${retries})`);
+        await upstreamRes.body?.cancel().catch(() => {});
+        await sleep(wait);
+        if (abort.signal.aborted) { release(); return; }
+        upstreamRes = await callUpstream();
+      }
     } catch (err) {
+      release();
       if (abort.signal.aborted) return;
       if (stats) stats.errors += 1;
       return anthropicError(res, 502, `NIM request failed: ${err.message}`);
@@ -96,19 +152,31 @@ export function createProxy({ apiKey, model, smallModel, maxTokens, token, debug
       const text = await upstreamRes.text().catch(() => '');
       log(`<- ${upstreamRes.status} ${text.slice(0, 400)}`);
       if (stats) stats.errors += 1;
+      release();
       const status = [400, 401, 403, 404, 429].includes(upstreamRes.status) ? upstreamRes.status : 502;
       const type = status === 429 ? 'rate_limit_error'
         : status === 401 || status === 403 ? 'authentication_error'
         : status === 400 ? 'invalid_request_error'
         : 'api_error';
-      return anthropicError(res, status, `NIM ${upstreamRes.status}: ${text.slice(0, 800)}`, type);
+      // NIM's 429 body is just {"status":429,"title":"Too Many Requests"}, which
+      // tells the user nothing about what to do next.
+      const message = status === 429
+        ? `NIM rate limit on ${target} after ${retries} retries. NVIDIA enforces a per-model `
+          + `request quota per account; this model is exhausted for now. Wait, or run nimrun `
+          + `with a different model.`
+        : `NIM ${upstreamRes.status}: ${text.slice(0, 800)}`;
+      return anthropicError(res, status, message, type);
     }
 
     if (!upstream.stream) {
-      const json = await upstreamRes.json();
-      const converted = openAIToAnthropic(json, body.model || target);
-      count(converted.usage);
-      return sendJSON(res, 200, converted);
+      try {
+        const json = await upstreamRes.json();
+        const converted = openAIToAnthropic(json, body.model || target);
+        count(converted.usage);
+        return sendJSON(res, 200, converted);
+      } finally {
+        release();
+      }
     }
 
     const writer = new AnthropicStreamWriter(res, body.model || target);
@@ -126,10 +194,12 @@ export function createProxy({ apiKey, model, smallModel, maxTokens, token, debug
         parser.push(decoder.decode(piece, { stream: true }));
       }
       clearInterval(ping);
+      release();
       writer.end();
       count(writer.usage);
     } catch (err) {
       clearInterval(ping);
+      release();
       if (abort.signal.aborted) return;
       if (stats) stats.errors += 1;
       writer.fail(err.message);

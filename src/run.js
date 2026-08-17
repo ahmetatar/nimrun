@@ -13,10 +13,11 @@ const { glyph: g } = ui;
 export async function runClaude({
   apiKey, model, smallModel, maxTokens,
   claudeArgs = [], debug = false, bin = 'claude', port: fixedPort = 0, contextTokens = null,
+  concurrency = 1,
 }) {
   const token = crypto.randomBytes(24).toString('hex');
   const stats = { requests: 0, inputTokens: 0, outputTokens: 0, errors: 0 };
-  const server = createProxy({ apiKey, model, smallModel, maxTokens, token, debug, stats });
+  const server = createProxy({ apiKey, model, smallModel, maxTokens, token, debug, stats, concurrency });
   const port = await listen(server, { host: '127.0.0.1', port: fixedPort || 0 });
 
   const env = {
@@ -46,6 +47,7 @@ export async function runClaude({
   rows.push(['proxy', `127.0.0.1:${port}  ${ui.faint(`anthropic ${g.swap} openai`)}`]);
   if (maxTokens) rows.push(['max out', String(maxTokens)]);
   if (contextTokens) rows.push(['context', contextTokens.toLocaleString('en-US')]);
+  if (concurrency > 1) rows.push(['parallel', `${concurrency} upstream requests`]);
   ui.write(ui.card(rows, { title: `${g.bullet} session` }));
   ui.write(`  ${ui.faint(`starting ${bin} ${g.dot} settings restored on exit`)}\n\n`);
 

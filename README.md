@@ -95,6 +95,7 @@ Claude Code runs normally from here. On exit you get the tally, and the proxy is
 | `--small <id>` | model for Claude Code's cheap background calls (titles, summaries) |
 | `--max-tokens <n>` | cap output tokens per response |
 | `--context <n>` | the model's real context window (Claude Code otherwise assumes 200k) |
+| `--concurrency <n>` | upstream requests in flight at once (default 1 — NIM limits these) |
 | `--tools-only` | only list models known to handle tool calling |
 | `--all` | include non-chat endpoints (embedding, rerank, vision) in the picker |
 | `--port <n>` | fixed proxy port instead of an ephemeral one |
@@ -168,7 +169,13 @@ Everything decorative goes to **stderr**, so `nimrun models | grep coder` and
 - Prompt caching, extended thinking blocks, and the web-search / computer-use server
   tools are Anthropic-side features with no NIM equivalent; they are dropped, not faked.
 - `count_tokens` returns a character-based estimate — NIM has no token counting endpoint.
-- Rate limits and per-model quotas are NVIDIA's; `nimrun` passes `429`s straight through.
+- Rate limits are **per model, per account**, and on the free tier some models are far
+  tighter than others — one model can be exhausted while another answers instantly.
+  `nimrun` sends at most one upstream request at a time (Claude Code otherwise fires
+  background calls alongside the main query, which is enough to trip a limit on its own)
+  and retries `429`s with backoff, honouring `Retry-After`. A quota that is genuinely
+  spent still surfaces — raise throughput with `--concurrency` only if your account
+  allows it, and use `--small` so background calls do not spend the main model's quota.
 - The catalog over-reports. `/v1/models` lists models your account cannot invoke, and the
   records are byte-identical to working ones — `{id, object, created, owned_by}`, nothing
   that marks availability. There is no way to filter them out in advance; the only signal
