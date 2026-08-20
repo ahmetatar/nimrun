@@ -25,7 +25,7 @@ for (const [code, type] of [[429, 'rate_limit_error'], [401, 'authentication_err
   assert.equal(res.status, code === 500 ? 502 : code, `status for upstream ${code}`);
   assert.equal(json.type, 'error');
   assert.equal(json.error.type, type, `error type for upstream ${code}`);
-  // the 429 body NIM returns says nothing actionable, so nimrun replaces it
+  // the 429 body NIM returns says nothing actionable, so palimorph replaces it
   assert.match(json.error.message, code === 429 ? /rate limit on m/ : /too many requests/);
 }
 

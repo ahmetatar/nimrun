@@ -1,36 +1,36 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/ahmetatar/nimrun/main/docs/media/hero.png" alt="nimrun" width="820">
+<img src="https://raw.githubusercontent.com/ahmetatar/palimorph/main/docs/media/hero.png" alt="palimorph" width="820">
 
-**Run [Claude Code](https://claude.com/claude-code) against any model on [build.nvidia.com](https://build.nvidia.com/models).**
+**Run [Claude Code](https://claude.com/claude-code) against any model on [build.nvidia.com](https://build.nvidia.com/models), or a local LM Studio / Ollama server.**
 
-[![npm](https://img.shields.io/npm/v/nimrun?color=76b900&labelColor=0b0e14)](https://www.npmjs.com/package/nimrun)
-[![license](https://img.shields.io/npm/l/nimrun?color=76b900&labelColor=0b0e14)](./LICENSE)
-[![node](https://img.shields.io/node/v/nimrun?color=76b900&labelColor=0b0e14)](https://nodejs.org)
-[![ci](https://github.com/ahmetatar/nimrun/actions/workflows/ci.yml/badge.svg)](https://github.com/ahmetatar/nimrun/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/palimorph?color=76b900&labelColor=0b0e14)](https://www.npmjs.com/package/palimorph)
+[![license](https://img.shields.io/npm/l/palimorph?color=76b900&labelColor=0b0e14)](./LICENSE)
+[![node](https://img.shields.io/node/v/palimorph?color=76b900&labelColor=0b0e14)](https://nodejs.org)
+[![ci](https://github.com/ahmetatar/palimorph/actions/workflows/ci.yml/badge.svg)](https://github.com/ahmetatar/palimorph/actions/workflows/ci.yml)
 
 </div>
 
 ---
 
-Pick a model from NVIDIA's NIM catalog and `nimrun` launches Claude Code wired to it.
-When that process exits, nothing is left behind — your Claude Code settings files are
-never touched.
+Pick a model — from NVIDIA's NIM catalog, or a local LM Studio / Ollama server — and
+`palimorph` launches Claude Code wired to it. When that process exits, nothing is left
+behind — your Claude Code settings files are never touched.
 
 ```bash
-npx nimrun
+npx palimorph
 ```
 
 ## Why a proxy is involved
 
-NIM only exposes an **OpenAI-compatible** API. Claude Code's `ANTHROPIC_BASE_URL` only
-speaks the **Anthropic Messages API**. Setting environment variables alone will not
-connect them — the first request 404s.
+NIM, LM Studio, and Ollama all expose an **OpenAI-compatible** API. Claude Code's
+`ANTHROPIC_BASE_URL` only speaks the **Anthropic Messages API**. Setting environment
+variables alone will not connect them — the first request 404s.
 
-So `nimrun` starts a translation proxy on loopback for the life of the session:
+So `palimorph` starts a translation proxy on loopback for the life of the session:
 
 ```
-claude ──Anthropic /v1/messages──▶ nimrun proxy ──OpenAI /v1/chat/completions──▶ integrate.api.nvidia.com
+claude ──Anthropic /v1/messages──▶ palimorph proxy ──OpenAI /v1/chat/completions──▶ NIM / LM Studio / Ollama
        ◀──Anthropic SSE events───               ◀──OpenAI delta stream─────────
 ```
 
@@ -41,7 +41,7 @@ on the machine can reach it. It dies with the process.
 
 ## Setup
 
-`nimrun login` does **not** open a browser — NVIDIA has no OAuth flow for NIM, so the key
+`palimorph login` does **not** open a browser — NVIDIA has no OAuth flow for NIM, so the key
 is pasted once:
 
 1. Sign in at [build.nvidia.com](https://build.nvidia.com/models) (free account).
@@ -49,7 +49,7 @@ is pasted once:
 3. Copy the `nvapi-…` key.
 
 ```bash
-nimrun login                    # stored at ~/.nimrun/config.json, mode 0600
+palimorph login                    # stored at ~/.palimorph/config.json, mode 0600
 # or
 export NVIDIA_API_KEY=nvapi-…   # env always wins; never written to disk
 ```
@@ -60,18 +60,34 @@ Claude Code itself must be installed:
 npm i -g @anthropic-ai/claude-code
 ```
 
+### Local models (LM Studio / Ollama)
+
+No key needed — just start the local server and point `palimorph` at it:
+
+```bash
+# LM Studio: start its local server (Developer tab, or `lms server start`), then
+palimorph --provider lmstudio
+
+# Ollama: start the daemon (`ollama serve`), then
+palimorph --provider ollama
+```
+
+The provider choice is remembered for next time, so after the first run a plain `palimorph`
+reuses it. Use `--base-url <url>` to point at a non-default host/port, or
+`--provider custom --base-url <url>` for any other OpenAI-compatible server.
+
 ## Usage
 
 ```bash
-nimrun                              # pick a model, launch Claude Code
-nimrun --last                       # reuse your last pick
-nimrun qwen/qwen3-coder-480b-a35b-instruct
-nimrun --tools-only                 # only models known to do tool calling
-nimrun models                       # print the catalog (plain stdout, pipe-safe)
-nimrun status                       # key, endpoint, connectivity, last model
-nimrun check z-ai/glm-5.2           # ask a model to make a real tool call
-nimrun fav moonshotai/kimi-k2-instruct   # pin to the top of the picker
-nimrun -- -p "summarize this repo"  # everything after -- goes to claude
+palimorph                              # pick a model, launch Claude Code
+palimorph --last                       # reuse your last pick
+palimorph qwen/qwen3-coder-480b-a35b-instruct
+palimorph --tools-only                 # only models known to do tool calling
+palimorph models                       # print the catalog (plain stdout, pipe-safe)
+palimorph status                       # key, endpoint, connectivity, last model
+palimorph check z-ai/glm-5.2           # ask a model to make a real tool call
+palimorph fav moonshotai/kimi-k2-instruct   # pin to the top of the picker
+palimorph -- -p "summarize this repo"  # everything after -- goes to claude
 ```
 
 ### The picker
@@ -79,20 +95,22 @@ nimrun -- -p "summarize this repo"  # everything after -- goes to claude
 Start typing to narrow the catalog; matches are underlined as you type.
 `↑↓` to move, `⏎` to select, `esc` to quit.
 
-<img src="https://raw.githubusercontent.com/ahmetatar/nimrun/main/docs/media/picker.png" alt="model picker filtering on 'coder'" width="820">
+<img src="https://raw.githubusercontent.com/ahmetatar/palimorph/main/docs/media/picker.png" alt="model picker filtering on 'coder'" width="820">
 
 ### The session
 
-<img src="https://raw.githubusercontent.com/ahmetatar/nimrun/main/docs/media/session.png" alt="session card shown at launch" width="560">
+<img src="https://raw.githubusercontent.com/ahmetatar/palimorph/main/docs/media/session.png" alt="session card shown at launch" width="560">
 
 Claude Code runs normally from here. On exit you get the tally, and the proxy is gone:
 
-<img src="https://raw.githubusercontent.com/ahmetatar/nimrun/main/docs/media/session-end.png" alt="session summary printed on exit" width="560">
+<img src="https://raw.githubusercontent.com/ahmetatar/palimorph/main/docs/media/session-end.png" alt="session summary printed on exit" width="560">
 
 ### Options
 
 | Flag | Meaning |
 |---|---|
+| `--provider <id>` | `nvidia` (default), `lmstudio`, `ollama`, or `custom` |
+| `--base-url <url>` | override the endpoint (required for `--provider custom`) |
 | `--small <id>` | model for Claude Code's cheap background calls (titles, summaries) |
 | `--max-tokens <n>` | cap output tokens per response |
 | `--context <n>` | the model's real context window (Claude Code otherwise assumes 200k) |
@@ -105,9 +123,9 @@ Claude Code runs normally from here. On exit you get the tally, and the proxy is
 | `--no-banner` | skip the hero banner |
 
 <details>
-<summary><code>nimrun --help</code></summary>
+<summary><code>palimorph --help</code></summary>
 
-<img src="https://raw.githubusercontent.com/ahmetatar/nimrun/main/docs/media/help.png" alt="nimrun --help" width="700">
+<img src="https://raw.githubusercontent.com/ahmetatar/palimorph/main/docs/media/help.png" alt="palimorph --help" width="700">
 
 </details>
 
@@ -116,25 +134,25 @@ Claude Code runs normally from here. On exit you get the tally, and the proxy is
 To point an existing tool at NIM without spawning anything:
 
 ```bash
-eval "$(nimrun proxy meta/llama-3.3-70b-instruct)"
+eval "$(palimorph proxy meta/llama-3.3-70b-instruct)"
 ```
 
 ## Choosing a model
 
 Claude Code is an agentic tool: it is useless with a model that will not emit tool
 calls. Family names do not prove support and NIM's catalog reports no capabilities, so
-`nimrun` **asks the model directly** — one tiny tool call, the first time you use it:
+`palimorph` **asks the model directly** — one tiny tool call, the first time you use it:
 
 ```
-$ nimrun check nvidia/nemotron-3-super-120b-a12b
+$ palimorph check nvidia/nemotron-3-super-120b-a12b
 ✔ nvidia/nemotron-3-super-120b-a12b makes tool calls — usable with Claude Code
 
-$ nimrun check moonshotai/kimi-k2.6
+$ palimorph check moonshotai/kimi-k2.6
 ▲ moonshotai/kimi-k2.6 did not make a tool call: listed in the catalog but not
   enabled for this account
 ```
 
-Verdicts are cached in `~/.nimrun/config.json`, so the picker shows what is real:
+Verdicts are cached in `~/.palimorph/config.json`, so the picker shows what is real:
 
 | Badge | Meaning |
 |---|---|
@@ -163,35 +181,42 @@ The banner, picker, and cards adapt rather than break:
 | `NO_COLOR` / not a TTY / `TERM=dumb` | all colour dropped |
 | 256-colour or 16-colour terminal | gradients quantised to the nearest palette |
 | terminal narrower than 55 columns | hero collapses to a one-line wordmark |
-| `NIMRUN_ASCII=1` or plain Windows console | box-drawing swapped for ASCII |
-| `NIMRUN_NO_BANNER` / `--no-banner` | banner suppressed entirely |
+| `PALIMORPH_ASCII=1` or plain Windows console | box-drawing swapped for ASCII |
+| `PALIMORPH_NO_BANNER` / `--no-banner` | banner suppressed entirely |
 
-Everything decorative goes to **stderr**, so `nimrun models | grep coder` and
-`nimrun --version` stay clean.
+Everything decorative goes to **stderr**, so `palimorph models | grep coder` and
+`palimorph --version` stay clean.
 
 ## Notes and limits
 
 - Prompt caching, extended thinking blocks, and the web-search / computer-use server
   tools are Anthropic-side features with no NIM equivalent; they are dropped, not faked.
 - `count_tokens` returns a character-based estimate — NIM has no token counting endpoint.
-- Rate limits are **per model, per account**, and on the free tier some models are far
-  tighter than others — one model can be exhausted while another answers instantly.
-  `nimrun` sends at most one upstream request at a time (Claude Code otherwise fires
-  background calls alongside the main query, which is enough to trip a limit on its own)
-  and retries `429`s with backoff, honouring `Retry-After`. A quota that is genuinely
-  spent still surfaces — raise throughput with `--concurrency` only if your account
-  allows it, and use `--small` so background calls do not spend the main model's quota.
-- The catalog over-reports. `/v1/models` lists models your account cannot invoke, and the
-  records are byte-identical to working ones — `{id, object, created, owned_by}`, nothing
-  that marks availability. There is no way to filter them out in advance; the only signal
-  is a real call, which is what `nimrun check` makes. The model list itself is NVIDIA's own
-  `/v1/models` verbatim, minus embedding/rerank/guard endpoints (`--all` keeps those).
-- A cold NIM model can take minutes to emit its first token. `nimrun` opens the response
+- On NIM, rate limits are **per model, per account**, and on the free tier some models
+  are far tighter than others — one model can be exhausted while another answers
+  instantly. `palimorph` sends at most one upstream request at a time by default
+  (Claude Code otherwise fires background calls alongside the main query, which is
+  enough to trip a limit — or overload a local model — on its own) and retries `429`s
+  with backoff, honouring `Retry-After`. A quota that is genuinely spent still surfaces —
+  raise throughput with `--concurrency` only if your account (or local machine) can
+  take it, and use `--small` so background calls do not spend the main model's quota.
+- NIM's catalog over-reports. `/v1/models` lists models your account cannot invoke, and
+  the records are byte-identical to working ones — `{id, object, created, owned_by}`,
+  nothing that marks availability. There is no way to filter them out in advance; the
+  only signal is a real call, which is what `palimorph check` makes. The model list itself
+  is NVIDIA's own `/v1/models` verbatim, minus embedding/rerank/guard endpoints (`--all`
+  keeps those). LM Studio and Ollama only list what is actually loaded or pulled, so this
+  does not apply to `--provider lmstudio`/`ollama` — but the model still may not support
+  tool calling, which is what `palimorph check` verifies either way.
+- A cold model can take minutes to emit its first token — a NIM model spinning up, or a
+  local model loading into memory for the first time. `palimorph` opens the response
   stream as soon as the upstream accepts the request and sends keep-alive pings, so the
   client does not time out waiting for headers.
 - Claude Code prints a notice that claude.ai connectors are disabled whenever an auth
   source is set. That is unavoidable — pointing it at a different provider *is* setting one.
-- Your prompts and code go to NVIDIA's servers, under NVIDIA's terms — not Anthropic's.
+- With the NVIDIA provider, your prompts and code go to NVIDIA's servers, under NVIDIA's
+  terms — not Anthropic's. With `--provider lmstudio`/`ollama`, nothing leaves your
+  machine — the model runs locally and the proxy only talks to `localhost`.
 
 ## Development
 

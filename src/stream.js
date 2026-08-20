@@ -167,7 +167,7 @@ export class AnthropicStreamWriter {
 
   fail(message) {
     if (this.started) {
-      this.text(`\n[nimrun] upstream error: ${message}`);
+      this.text(`\n[palimorph] upstream error: ${message}`);
       this.end();
       return;
     }

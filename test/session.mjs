@@ -1,5 +1,5 @@
 // Full chain: fake NIM upstream <- proxy <- spawned child using only the env
-// vars nimrun injects. Proves the child can reach the proxy with nothing but
+// vars palimorph injects. Proves the child can reach the proxy with nothing but
 // ANTHROPIC_BASE_URL/ANTHROPIC_AUTH_TOKEN, and that stats survive the round trip.
 import http from 'node:http';
 import fs from 'node:fs';
@@ -17,10 +17,10 @@ const fake = http.createServer((req, res) => {
 });
 await new Promise((r) => fake.listen(0, '127.0.0.1', r));
 process.env.NIM_BASE_URL = `http://127.0.0.1:${fake.address().port}/v1`;
-process.env.NIMRUN_NO_BANNER = '1';
+process.env.PALIMORPH_NO_BANNER = '1';
 
-const out = path.join(os.tmpdir(), `nimrun-session-${process.pid}.json`);
-const child = path.join(os.tmpdir(), `nimrun-child-${process.pid}.mjs`);
+const out = path.join(os.tmpdir(), `palimorph-session-${process.pid}.json`);
+const child = path.join(os.tmpdir(), `palimorph-child-${process.pid}.mjs`);
 fs.writeFileSync(child, [
   "// stands in for Claude Code: talks Anthropic to whatever ANTHROPIC_BASE_URL says",
   "import fs from 'node:fs';",

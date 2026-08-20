@@ -7,7 +7,7 @@
 const env = process.env;
 
 function detectColorDepth() {
-  if (env.NO_COLOR !== undefined || env.NIMRUN_NO_COLOR) return 0;
+  if (env.NO_COLOR !== undefined || env.PALIMORPH_NO_COLOR) return 0;
   if (env.FORCE_COLOR === '0') return 0;
   if (env.FORCE_COLOR === '3') return 3;
   if (env.FORCE_COLOR) return 2;
@@ -22,7 +22,7 @@ function detectColorDepth() {
 export const depth = detectColorDepth();
 export const isTTY = Boolean(process.stderr.isTTY);
 export const columns = () => process.stderr.columns || 80;
-export const unicode = !/^(1|true)$/i.test(env.NIMRUN_ASCII || '') &&
+export const unicode = !/^(1|true)$/i.test(env.PALIMORPH_ASCII || '') &&
   (process.platform !== 'win32' || Boolean(env.WT_SESSION));
 
 const ESC = '\x1b[';
@@ -151,22 +151,22 @@ export function write(s) {
 // --- hero ---------------------------------------------------------------
 
 const WORDMARK = [
-  '███╗   ██╗██╗███╗   ███╗██████╗ ██╗   ██╗███╗   ██╗',
-  '████╗  ██║██║████╗ ████║██╔══██╗██║   ██║████╗  ██║',
-  '██╔██╗ ██║██║██╔████╔██║██████╔╝██║   ██║██╔██╗ ██║',
-  '██║╚██╗██║██║██║╚██╔╝██║██╔══██╗██║   ██║██║╚██╗██║',
-  '██║ ╚████║██║██║ ╚═╝ ██║██║  ██║╚██████╔╝██║ ╚████║',
-  '╚═╝  ╚═══╝╚═╝╚═╝     ╚═╝╚═╝  ╚═╝ ╚═════╝ ╚═╝  ╚═══╝',
+  '██████╗  █████╗ ██╗     ██╗███╗   ███╗ ██████╗ ██████╗ ██████╗ ██╗  ██╗',
+  '██╔══██╗██╔══██╗██║     ██║████╗ ████║██╔═══██╗██╔══██╗██╔══██╗██║  ██║',
+  '██████╔╝███████║██║     ██║██╔████╔██║██║   ██║██████╔╝██████╔╝███████║',
+  '██╔═══╝ ██╔══██║██║     ██║██║╚██╔╝██║██║   ██║██╔══██╗██╔═══╝ ██╔══██║',
+  '██║     ██║  ██║███████╗██║██║ ╚═╝ ██║╚██████╔╝██║  ██║██║     ██║  ██║',
+  '╚═╝     ╚═╝  ╚═╝╚══════╝╚═╝╚═╝     ╚═╝ ╚═════╝ ╚═╝  ╚═╝╚═╝     ╚═╝  ╚═╝',
 ];
-const MARK_WIDTH = 51;
+const MARK_WIDTH = 71;
 
 export function hero({ version = '', force = false } = {}) {
-  if (!force && (!isTTY || env.NIMRUN_NO_BANNER)) return;
+  if (!force && (!isTTY || env.PALIMORPH_NO_BANNER)) return;
   const cols = columns();
-  const tag = `Claude Code ${glyph.dot} any NVIDIA NIM model`;
+  const tag = `Claude Code ${glyph.dot} any NVIDIA NIM, LM Studio, or Ollama model`;
 
   if (cols < MARK_WIDTH + 4 || !unicode) {
-    write(`\n  ${gradient('nimrun', [GREEN, GLOW])} ${dim(glyph.dot)} ${slate(tag)}\n\n`);
+    write(`\n  ${gradient('palimorph', [GREEN, GLOW])} ${dim(glyph.dot)} ${slate(tag)}\n\n`);
     return;
   }
 

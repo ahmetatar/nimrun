@@ -1,7 +1,7 @@
 # Which NIM models can actually drive Claude Code?
 
 A measurement of eight NVIDIA NIM models running a real Claude Code agent loop through
-[`nimrun`](../README.md), on one NVIDIA account, 2026-08-17.
+[`palimorph`](../README.md) (then named `nimrun`), on one NVIDIA account, 2026-08-17.
 
 The question is narrower than "which model is best". Claude Code is useless with a model
 that will not emit tool calls, and a model that emits one tool call may still lose the
@@ -143,11 +143,11 @@ as provisional.
 ## Reproducing
 
 The harness lives in the scratch directory used for this run, not in the package. It is
-about 60 lines of bash: copy the fixture, run `nimrun <model> -- -p "<task>"` under a
-watchdog, then grade in a clean room. The numbers above come from `nimrun`'s own
+about 60 lines of bash: copy the fixture, run `palimorph <model> -- -p "<task>"` under a
+watchdog, then grade in a clean room. The numbers above come from `palimorph`'s own
 end-of-session summary, which counts requests and tokens as they pass through the proxy.
 
-## Footnote: two `nimrun` defects this surfaced
+## Footnote: two `palimorph` defects this surfaced
 
 - A cold model could stall a client into a headers timeout, because the proxy did not
   open the SSE response until the first upstream token. It now opens on upstream accept

@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import { createProxy, listen } from './proxy.js';
+import { PROVIDERS } from './config.js';
 import * as ui from './ui.js';
 
 const { glyph: g } = ui;
@@ -12,12 +13,13 @@ const { glyph: g } = ui;
  */
 export async function runClaude({
   apiKey, model, smallModel, maxTokens,
+  baseUrl, provider = 'nvidia',
   claudeArgs = [], debug = false, bin = 'claude', port: fixedPort = 0, contextTokens = null,
   concurrency = 1,
 }) {
   const token = crypto.randomBytes(24).toString('hex');
   const stats = { requests: 0, inputTokens: 0, outputTokens: 0, errors: 0 };
-  const server = createProxy({ apiKey, model, smallModel, maxTokens, token, debug, stats, concurrency });
+  const server = createProxy({ apiKey, model, smallModel, maxTokens, token, baseUrl, provider, debug, stats, concurrency });
   const port = await listen(server, { host: '127.0.0.1', port: fixedPort || 0 });
 
   const env = {
@@ -30,8 +32,8 @@ export async function runClaude({
     ANTHROPIC_SMALL_FAST_MODEL: smallModel || model,
     ANTHROPIC_DEFAULT_HAIKU_MODEL: smallModel || model,
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
-    NIMRUN_ACTIVE: '1',
-    NIMRUN_MODEL: model,
+    PALIMORPH_ACTIVE: '1',
+    PALIMORPH_MODEL: model,
   };
   // A stale credential in the ambient environment would outrank our local token.
   // ANTHROPIC_API_KEY in particular makes Claude Code disable claude.ai connectors,
@@ -45,7 +47,7 @@ export async function runClaude({
   // Always show the background model: when it is the main model, Claude Code's
   // background calls spend that model's per-model quota, which is the usual cause
   // of a 429 on the very first turn.
-  const rows = [['model', ui.fg(ui.GLOW, model)]];
+  const rows = [['provider', PROVIDERS[provider]?.label || provider], ['model', ui.fg(ui.GLOW, model)]];
   rows.push(['fast', smallModel && smallModel !== model
     ? smallModel
     : `${ui.faint('same as model')} ${ui.faint(`${g.dot} --small <id> spares its quota`)}`]);

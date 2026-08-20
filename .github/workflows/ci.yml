@@ -36,7 +36,7 @@ jobs:
           npm pack
           mkdir -p /tmp/consumer && cd /tmp/consumer
           npm init -y > /dev/null
-          npm i "$GITHUB_WORKSPACE"/nimrun-*.tgz
-          ./node_modules/.bin/nimrun --version
-          ./node_modules/.bin/nimrun --help > /dev/null
+          npm i "$GITHUB_WORKSPACE"/palimorph-*.tgz
+          ./node_modules/.bin/palimorph --version
+          ./node_modules/.bin/palimorph --help > /dev/null
           echo "installed package is runnable"

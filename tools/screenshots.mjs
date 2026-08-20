@@ -55,7 +55,7 @@ const CATALOG = [
   'google/gemma-3-12b-it', 'ibm/granite-3.0-8b-instruct', 'microsoft/phi-3.5-moe-instruct',
 ].map((id) => ({ id, owner: id.split('/')[0] }));
 
-// verdicts as `nimrun check` actually returned them against the live catalog
+// verdicts as `palimorph check` actually returned them against the live catalog
 const cfg = {
   favorites: ['z-ai/glm-5.2'],
   lastModel: 'nvidia/nemotron-3-super-120b-a12b',
@@ -97,13 +97,13 @@ const pick = select({
   hint: `${ui.fg(ui.GREEN, ui.bold('tools'))} = verified ${g.dot} ${ui.fg(ui.GREEN, 'tools?')} = likely ${g.dot} ${ui.amber(g.star)} = pinned`,
   render,
 });
-emit('hero', heroFrame + take(), 'nimrun');
+emit('hero', heroFrame + take(), 'palimorph');
 
 // --- 2. picker mid-filter ----------------------------------------------
 for (const ch of 'nemotron') process.stdin.emit('keypress', ch, { name: ch });
 take();
 process.stdin.emit('keypress', null, { name: 'down' });
-emit('picker', take(), 'nimrun — model picker');
+emit('picker', take(), 'palimorph — model picker');
 process.stdin.emit('keypress', null, { name: 'escape' });
 await pick.catch(() => {});
 
@@ -121,7 +121,7 @@ process.env.NIM_BASE_URL = `http://127.0.0.1:${upstream.address().port}/v1`;
 
 // The stand-in is genuinely installed as an executable named `claude` on a
 // temp PATH, so the banner prints the real command name rather than a stub path.
-const stubDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nimrun-shot-'));
+const stubDir = fs.mkdtempSync(path.join(os.tmpdir(), 'palimorph-shot-'));
 const stub = path.join(stubDir, 'claude');
 fs.writeFileSync(stub, [
   '#!/usr/bin/env node',
@@ -154,14 +154,14 @@ const [launch, ended] = [
   session.slice(0, session.indexOf('\n\n', session.indexOf('starting'))),
   session.slice(session.indexOf('╭', session.indexOf('starting'))),
 ];
-emit('session', launch, 'nimrun — launching');
-emit('session-end', ended, 'nimrun — on exit');
+emit('session', launch, 'palimorph — launching');
+emit('session-end', ended, 'palimorph — on exit');
 
 // --- 4. help ------------------------------------------------------------
 const { main } = await import('../src/cli.js');
 take();
 await main(['--help']);
-emit('help', take(), 'nimrun --help');
+emit('help', take(), 'palimorph --help');
 
 process.stderr.write = realWrite;
 realWrite(`wrote:\n${written.map((f) => `  ${f}\n`).join('')}`);

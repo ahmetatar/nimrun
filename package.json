@@ -1,10 +1,10 @@
 {
-  "name": "nimrun",
+  "name": "palimorph",
   "version": "0.1.4",
-  "description": "Run Claude Code against any NVIDIA NIM model. Pick a model, get a throwaway Anthropic-compatible proxy, launch claude — nothing is left behind when it exits.",
+  "description": "Run Claude Code against any NVIDIA NIM, LM Studio, or Ollama model. Pick a model, get a throwaway Anthropic-compatible proxy, launch claude — nothing is left behind when it exits.",
   "type": "module",
   "bin": {
-    "nimrun": "bin/nimrun.js"
+    "palimorph": "bin/palimorph.js"
   },
   "files": [
     "bin",
@@ -16,8 +16,8 @@
     "node": ">=18.17"
   },
   "scripts": {
-    "start": "node bin/nimrun.js",
-    "test": "node test/e2e.mjs && node test/errors.mjs && node test/session.mjs",
+    "start": "node bin/palimorph.js",
+    "test": "node test/e2e.mjs && node test/errors.mjs && node test/session.mjs && node test/providers.mjs",
     "screenshots": "node tools/screenshots.mjs",
     "prepublishOnly": "npm test"
   },
@@ -36,13 +36,13 @@
   ],
   "author": "Ahmet Atar (https://github.com/ahmetatar)",
   "license": "MIT",
-  "homepage": "https://github.com/ahmetatar/nimrun#readme",
+  "homepage": "https://github.com/ahmetatar/palimorph#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ahmetatar/nimrun.git"
+    "url": "git+https://github.com/ahmetatar/palimorph.git"
   },
   "bugs": {
-    "url": "https://github.com/ahmetatar/nimrun/issues"
+    "url": "https://github.com/ahmetatar/palimorph/issues"
   },
   "publishConfig": {
     "access": "public"

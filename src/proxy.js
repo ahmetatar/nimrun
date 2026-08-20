@@ -62,10 +62,11 @@ function anthropicError(res, status, message, type = 'api_error') {
  */
 export function createProxy({
   apiKey, model, smallModel, maxTokens, token,
+  baseUrl = nimBaseUrl(), provider = 'nvidia',
   debug = false, stats = null, concurrency = 1, retries = 4,
 }) {
   const limiter = createLimiter(Math.max(1, concurrency));
-  const log = (...a) => { if (debug) process.stderr.write(`[nimrun] ${a.join(' ')}\n`); };
+  const log = (...a) => { if (debug) process.stderr.write(`[palimorph] ${a.join(' ')}\n`); };
   const count = (usage) => {
     if (!stats || !usage) return;
     stats.inputTokens += usage.input_tokens || 0;
@@ -79,7 +80,7 @@ export function createProxy({
 
     if (token) {
       const provided = req.headers['x-api-key'] || String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
-      if (provided !== token) return anthropicError(res, 401, 'nimrun: bad local token', 'authentication_error');
+      if (provided !== token) return anthropicError(res, 401, 'palimorph: bad local token', 'authentication_error');
     }
 
     if (req.method !== 'POST') return anthropicError(res, 404, `no route for ${req.method} ${url.pathname}`, 'not_found_error');
@@ -116,7 +117,7 @@ export function createProxy({
     const release = await limiter.acquire();
     if (abort.signal.aborted) { release(); return; }
 
-    const callUpstream = () => fetch(`${nimBaseUrl()}/chat/completions`, {
+    const callUpstream = () => fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -145,7 +146,10 @@ export function createProxy({
       release();
       if (abort.signal.aborted) return;
       if (stats) stats.errors += 1;
-      return anthropicError(res, 502, `NIM request failed: ${err.message}`);
+      const hint = err.cause?.code === 'ECONNREFUSED' && provider !== 'nvidia' && provider !== 'custom'
+        ? ` Is ${provider === 'lmstudio' ? 'LM Studio' : 'Ollama'} running at ${baseUrl}?`
+        : '';
+      return anthropicError(res, 502, `upstream request failed: ${err.message}.${hint}`);
     }
 
     if (!upstreamRes.ok) {
@@ -161,10 +165,12 @@ export function createProxy({
       // NIM's 429 body is just {"status":429,"title":"Too Many Requests"}, which
       // tells the user nothing about what to do next.
       const message = status === 429
-        ? `NIM rate limit on ${target} after ${retries} retries. NVIDIA enforces a per-model `
-          + `request quota per account; this model is exhausted for now. Wait, or run nimrun `
-          + `with a different model.`
-        : `NIM ${upstreamRes.status}: ${text.slice(0, 800)}`;
+        ? provider === 'nvidia'
+          ? `NIM rate limit on ${target} after ${retries} retries. NVIDIA enforces a per-model `
+            + `request quota per account; this model is exhausted for now. Wait, or run palimorph `
+            + `with a different model.`
+          : `rate limited on ${target} after ${retries} retries. Wait, or run palimorph with a different model.`
+        : `upstream ${upstreamRes.status}: ${text.slice(0, 800)}`;
       return anthropicError(res, status, message, type);
     }
 

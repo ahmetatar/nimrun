@@ -2,16 +2,17 @@ import { nimBaseUrl } from './config.js';
 
 /**
  * build.nvidia.com's catalog is served verbatim by the NIM /v1/models endpoint,
- * so we read it from the API instead of scraping the site.
+ * and LM Studio / Ollama's OpenAI-compat mode serves the same shape for whatever
+ * is loaded/pulled locally, so one fetch works for every provider.
  */
-export async function fetchModels(apiKey, { signal } = {}) {
-  const res = await fetch(`${nimBaseUrl()}/models`, {
+export async function fetchModels(apiKey, baseUrl = nimBaseUrl(), { signal } = {}) {
+  const res = await fetch(`${baseUrl}/models`, {
     headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
     signal,
   });
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new Error(`NIM /models failed (${res.status} ${res.statusText}) ${body.slice(0, 300)}`);
+    throw new Error(`${baseUrl}/models failed (${res.status} ${res.statusText}) ${body.slice(0, 300)}`);
   }
   const json = await res.json();
   const list = Array.isArray(json?.data) ? json.data : [];
@@ -32,7 +33,8 @@ const NON_CHAT = [
   'graphic-elements', 'page-elements', 'nemoretriever', 'depth',
 ];
 
-export function isChatModel(id) {
+export function isChatModel(id, provider = 'nvidia') {
+  if (provider !== 'nvidia') return true; // local catalogs only list what's actually loaded/pulled
   const s = String(id).toLowerCase();
   return !NON_CHAT.some((k) => s.includes(k));
 }
@@ -51,7 +53,8 @@ const TOOL_FAMILIES = [
 // Endpoints in those families that are not general chat models.
 const NOT_AGENTIC = ['guard', 'reward', 'safety', 'parse', 'calibration', '-vl-', '-vl', 'detector'];
 
-export function supportsTools(id) {
+export function supportsTools(id, provider = 'nvidia') {
+  if (provider !== 'nvidia') return false; // no catalog-vendor heuristic for local models; probeTools decides
   const s = String(id).toLowerCase();
   if (NOT_AGENTIC.some((k) => s.includes(k))) return false;
   return TOOL_FAMILIES.some((k) => s.startsWith(k));
@@ -60,14 +63,14 @@ export function supportsTools(id) {
 /**
  * Asks the model to make one trivial tool call. This is the only reliable way to
  * know: NIM's /v1/models reports no capabilities, and it lists models the account
- * cannot even invoke.
+ * cannot even invoke. Works unmodified against any OpenAI-compatible endpoint.
  */
-export async function probeTools(apiKey, model, { signal, timeoutMs = 60000 } = {}) {
+export async function probeTools(apiKey, model, baseUrl = nimBaseUrl(), { signal, timeoutMs = 60000 } = {}) {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), timeoutMs);
   if (signal) signal.addEventListener('abort', () => ac.abort(), { once: true });
   try {
-    const res = await fetch(`${nimBaseUrl()}/chat/completions`, {
+    const res = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       signal: ac.signal,

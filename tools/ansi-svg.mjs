@@ -110,7 +110,7 @@ export function parseAnsi(input) {
 
 const esc = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-export function toSvg(ansi, { title = 'nimrun', cols } = {}) {
+export function toSvg(ansi, { title = 'palimorph', cols } = {}) {
   const lines = parseAnsi(ansi);
   const widest = Math.max(1, ...lines.map((l) => (l.length ? l.at(-1).col + [...l.at(-1).text].length : 0)));
   const width = Math.ceil((cols || widest + 2) * CHAR_W) + PAD_X * 2;
