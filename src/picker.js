@@ -7,22 +7,25 @@ const { glyph: g } = ui;
  * Type-to-filter list picker. Falls back to a numbered prompt when stdin is not
  * a TTY (piped input, CI) so the CLI never hangs on a keypress that cannot come.
  */
-export async function select({ items, label = 'Select', hint = '', pageSize, render }) {
+export async function select({ items, label = 'Select', hint = '', pageSize, render, groupKey, isSelectable, subscribe }) {
   if (!items.length) throw new Error('nothing to select from');
-  if (!process.stdin.isTTY || !process.stderr.isTTY) return fallback({ items, label, render });
+  if (!process.stdin.isTTY || !process.stderr.isTTY) return fallback({ items, label, render, isSelectable });
 
   const rows = process.stderr.rows || 24;
   const page = pageSize || Math.max(5, Math.min(14, rows - 10));
 
+  let currentItems = items;
   let query = '';
   let cursor = 0;
   let offset = 0;
   let painted = 0;
+  let frame = 0;
+  let spinTimer = null;
 
   const filtered = () => {
-    if (!query) return items;
+    if (!query) return currentItems;
     const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
-    return items.filter((it) => terms.every((t) => render(it).plain.toLowerCase().includes(t)));
+    return currentItems.filter((it) => terms.every((t) => render(it, { frame }).plain.toLowerCase().includes(t)));
   };
 
   const draw = () => {
@@ -56,7 +59,15 @@ export async function select({ items, label = 'Select', hint = '', pageSize, ren
     for (let i = 0; i < visible.length; i++) {
       const idx = offset + i;
       const active = idx === cursor;
-      const r = render(visible[i], { query, active });
+      if (groupKey) {
+        const key = groupKey(visible[i]);
+        const prevKey = idx > 0 ? groupKey(list[idx - 1]) : null;
+        if (i === 0 || key !== prevKey) {
+          if (i > 0) lines.push('');
+          lines.push(`  ${ui.faint(key)}`);
+        }
+      }
+      const r = render(visible[i], { query, active, frame });
       const body = ui.truncate(r.display, inner - 4);
       const bar = scrollbar(i, page, list.length, offset);
       lines.push(active
@@ -66,7 +77,7 @@ export async function select({ items, label = 'Select', hint = '', pageSize, ren
 
     // footer
     lines.push('');
-    const count = `${list.length}${list.length === items.length ? '' : `/${items.length}`} models`;
+    const count = `${list.length}${list.length === currentItems.length ? '' : `/${currentItems.length}`} models`;
     lines.push(`  ${ui.faint(count)}${hint ? ui.faint(`   ${g.dot}   ${hint}`) : ''}`);
 
     // repaint in place
@@ -77,6 +88,24 @@ export async function select({ items, label = 'Select', hint = '', pageSize, ren
     painted = Math.max(lines.length, painted);
   };
 
+  // Ticks the spinner frame for as long as anything is still loading, then stops itself.
+  const spin = () => {
+    if (!currentItems.some((it) => it.pending)) { clearInterval(spinTimer); spinTimer = null; return; }
+    frame += 1;
+    draw();
+  };
+  const ensureSpin = () => {
+    if (!spinTimer && currentItems.some((it) => it.pending)) spinTimer = setInterval(spin, 90);
+  };
+
+  if (subscribe) {
+    subscribe((newItems) => {
+      currentItems = newItems;
+      ensureSpin();
+      draw();
+    });
+  }
+
   readline.emitKeypressEvents(process.stdin);
   const wasRaw = process.stdin.isRaw;
   process.stdin.setRawMode(true);
@@ -85,6 +114,7 @@ export async function select({ items, label = 'Select', hint = '', pageSize, ren
 
   let onKey;
   const cleanup = () => {
+    if (spinTimer) clearInterval(spinTimer);
     ui.write('\x1b[?25h');
     process.stdin.setRawMode(Boolean(wasRaw));
     process.stdin.pause();
@@ -92,6 +122,7 @@ export async function select({ items, label = 'Select', hint = '', pageSize, ren
   };
 
   try {
+    ensureSpin();
     draw();
     return await new Promise((resolve, reject) => {
       onKey = (str, key) => {
@@ -103,6 +134,7 @@ export async function select({ items, label = 'Select', hint = '', pageSize, ren
         }
         if (key.name === 'return' || key.name === 'enter') {
           if (!list.length) return;
+          if (isSelectable && !isSelectable(list[cursor])) return;
           cleanup();
           resolve(list[cursor]);
           return;
@@ -167,31 +199,41 @@ export function highlight(text, query) {
   return out;
 }
 
-async function fallback({ items, label, render }) {
+async function fallback({ items, label, render, isSelectable }) {
+  const choices = isSelectable ? items.filter(isSelectable) : items;
+  if (!choices.length) throw new Error('cancelled');
   ui.write(`${label}\n`);
-  items.slice(0, 40).forEach((it, i) => {
+  choices.slice(0, 40).forEach((it, i) => {
     ui.write(`  ${String(i + 1).padStart(2)}) ${render(it).plain}\n`);
   });
-  if (items.length > 40) ui.write(`  ${ui.faint(`… and ${items.length - 40} more`)}\n`);
+  if (choices.length > 40) ui.write(`  ${ui.faint(`… and ${choices.length - 40} more`)}\n`);
   const rl = readline.createInterface({ input: process.stdin, output: process.stderr });
   const answer = await new Promise((r) => rl.question('number> ', r));
   rl.close();
   const n = Number.parseInt(answer, 10);
-  if (!Number.isInteger(n) || n < 1 || n > items.length) throw new Error('cancelled');
-  return items[n - 1];
+  if (!Number.isInteger(n) || n < 1 || n > choices.length) throw new Error('cancelled');
+  return choices[n - 1];
 }
 
 export async function prompt(question, { silent = false } = {}) {
+  // If this runs right after select()'s picker, stdin was left paused by its
+  // cleanup — readline never resumes it on its own, so without this a prompt
+  // shown mid-flow (e.g. asking for an API key after picking it in the
+  // picker) would sit forever never seeing a single keystroke.
+  process.stdin.resume();
   const rl = readline.createInterface({ input: process.stdin, output: process.stderr, terminal: true });
   if (silent) {
-    const mask = () => {
-      readline.clearLine(process.stderr, 0);
-      readline.cursorTo(process.stderr, 0);
-      process.stderr.write(question);
+    // readline calls _writeToOutput on every keystroke instead of writing
+    // directly, but does not clear the line first — replacing it entirely
+    // (clear, reset cursor, then write the static prompt) is what keeps this
+    // to one line; a separate 'data' listener racing readline's own refresh
+    // is what left two stacked "key (hidden):" lines behind before.
+    rl._writeToOutput = () => {
+      readline.cursorTo(rl.output, 0);
+      readline.clearLine(rl.output, 0);
+      rl.output.write(question);
     };
-    rl.input.on('data', mask);
     const answer = await new Promise((r) => rl.question(question, r));
-    rl.input.removeListener('data', mask);
     rl.close();
     process.stderr.write('\n');
     return answer.trim();

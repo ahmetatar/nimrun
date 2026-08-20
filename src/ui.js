@@ -216,6 +216,7 @@ export const note = (msg) => `${faint(glyph.dot)} ${faint(msg)}\n`;
 // --- spinner ------------------------------------------------------------
 
 const FRAMES = unicode ? ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] : ['-', '\\', '|', '/'];
+export const spinnerFrames = FRAMES;
 
 export function spinner(label) {
   if (!isTTY) {

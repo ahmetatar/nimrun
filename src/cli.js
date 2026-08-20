@@ -26,7 +26,7 @@ ${b('USAGE')}
   ${k('palimorph')} [model] [options] ${d('[-- <claude args>]')}
 
 ${b('COMMANDS')}
-  ${k('palimorph')}                    ${d('pick a model, then launch Claude Code')}
+  ${k('palimorph')}                    ${d('look at NVIDIA NIM, LM Studio, and Ollama at once, pick, launch')}
   ${k('palimorph')} <model-id>         ${d('launch straight into that model')}
   ${k('palimorph')} --last             ${d('reuse the last model you picked')}
   ${k('palimorph')} models             ${d('list available NIM models')}
@@ -38,7 +38,7 @@ ${b('COMMANDS')}
   ${k('palimorph')} fav <model-id>     ${d('pin a model to the top of the picker')}
 
 ${b('OPTIONS')}
-  ${k('--provider')} <id>      ${d('nvidia (default), lmstudio, ollama, or custom')}
+  ${k('--provider')} <id>      ${d('skip auto-discovery: nvidia, lmstudio, ollama, or custom')}
   ${k('--base-url')} <url>     ${d('override the endpoint (required for --provider custom)')}
   ${k('--small')} <model-id>   ${d("model for Claude Code's cheap background calls")}
   ${k('--max-tokens')} <n>     ${d('cap output tokens per response')}
@@ -56,9 +56,12 @@ ${b('HOW IT WORKS')}
   ${d('proxy that translates between them, hands it to a child process through')}
   ${d('env vars, and tears it down on exit — your settings files are untouched.')}
 
+  ${d('With no --provider, palimorph checks NVIDIA NIM (if a key is known), LM Studio,')}
+  ${d('and Ollama at once and shows everything found in one picker. If NVIDIA has no')}
+  ${d('key yet it still shows up — picking it asks for the key right there.')}
+
   ${d('NVIDIA key:')} ${ui.cyan('NVIDIA_API_KEY')} ${d('or')} ${ui.cyan('palimorph login')} ${d(`${g.dot} get one at https://build.nvidia.com/`)}
-  ${d('LM Studio / Ollama need no key — just')} ${ui.cyan('palimorph --provider lmstudio')} ${d('or')} ${ui.cyan('--provider ollama')}
-  ${d('with the server already running locally.')}
+  ${d('LM Studio / Ollama need no key — just have the server running locally.')}
 `;
 }
 
@@ -108,6 +111,18 @@ function needKey(provider, cfg) {
   );
 }
 
+/** Applies --all / --tools-only to an already-fetched, provider-tagged catalog. */
+function filterCatalog(models, flags, cfg) {
+  let list = flags.all ? models : models.filter((m) => isChatModel(m.id));
+  if (flags.toolsOnly) {
+    list = list.filter((m) => {
+      const checked = cfg.toolChecks[scopedKey(m.provider, m.id)];
+      return checked ? checked.ok : supportsTools(m.id, m.provider);
+    });
+  }
+  return list;
+}
+
 async function loadCatalog(key, flags, provider, baseUrl) {
   const spin = ui.spinner(`reading the ${PROVIDERS[provider].label} catalog…`);
   let models;
@@ -117,14 +132,7 @@ async function loadCatalog(key, flags, provider, baseUrl) {
     spin.fail(`could not reach ${baseUrl}`);
     die(err.message);
   }
-  let list = flags.all ? models : models.filter((m) => isChatModel(m.id, provider));
-  if (flags.toolsOnly) {
-    const checks = loadConfig().toolChecks;
-    list = list.filter((m) => {
-      const checked = checks[scopedKey(provider, m.id)];
-      return checked ? checked.ok : supportsTools(m.id, provider);
-    });
-  }
+  const list = filterCatalog(models.map((m) => ({ ...m, provider })), flags, loadConfig());
   spin.stop();
   if (!list.length) die('no models matched those filters. Try --all.');
   return list;
@@ -132,29 +140,204 @@ async function loadCatalog(key, flags, provider, baseUrl) {
 
 const VENDOR_W = 12;
 
-/** One catalog row: vendor column, model name, then capability badges. */
-function makeRenderer(cfg, provider) {
+/** [badges, tail-string] for one model row — shared by both renderers below. */
+function badgeTail(m, cfg) {
+  const key = scopedKey(m.provider, m.id);
+  const badges = [];
+  if (key === cfg.lastModel) badges.push(ui.cyan('last'));
+  if (cfg.favorites.includes(key)) badges.push(ui.amber(g.star));
+  const checked = cfg.toolChecks[key];
+  if (checked?.ok) badges.push(ui.fg(ui.GREEN, ui.bold('tools')));
+  else if (checked && checked.reachable === false) badges.push(ui.red('unavailable'));
+  else if (checked) badges.push(ui.amber('no tools'));
+  else if (supportsTools(m.id, m.provider)) badges.push(ui.fg(ui.GREEN, 'tools?'));
+  return badges.length ? `  ${ui.faint('[')}${badges.join(ui.faint('·'))}${ui.faint(']')}` : '';
+}
+
+/** One catalog row: vendor column, model name, then capability badges. Every
+ * item must carry `.provider` — scopedKey uses it so state never crosses providers. */
+function makeRenderer(cfg) {
   return (m, { query = '', active = false } = {}) => {
-    const [vendor, rest] = m.id.includes('/') ? [m.id.split('/')[0], m.id.slice(m.id.indexOf('/') + 1)] : [PROVIDERS[provider].label, m.id];
+    if (m.synthetic) {
+      const text = 'enter your API key…';
+      const name = highlight(text, query);
+      return {
+        display: `${ui.faint(ui.pad(PROVIDERS[m.provider].label, VENDOR_W))}  ${ui.amber(active ? ui.bold(name) : name)}`,
+        plain: `${PROVIDERS[m.provider].label} ${text}`,
+      };
+    }
+
+    const [vendor, rest] = m.id.includes('/') ? [m.id.split('/')[0], m.id.slice(m.id.indexOf('/') + 1)] : [PROVIDERS[m.provider].label, m.id];
     const vendorCell = ui.pad(ui.truncate(vendor, VENDOR_W), VENDOR_W);
     const name = highlight(rest, query);
-
-    const badges = [];
-    if (m.id === cfg.lastModel) badges.push(ui.cyan('last'));
-    if (cfg.favorites.includes(m.id)) badges.push(ui.amber(g.star));
-    const checked = cfg.toolChecks[m.id];
-    if (checked?.ok) badges.push(ui.fg(ui.GREEN, ui.bold('tools')));
-    else if (checked && checked.reachable === false) badges.push(ui.red('unavailable'));
-    else if (checked) badges.push(ui.amber('no tools'));
-    else if (supportsTools(m.id, provider)) badges.push(ui.fg(ui.GREEN, 'tools?'));
-
     const label = active ? ui.bold(name) : name;
-    const tail = badges.length ? `  ${ui.faint('[')}${badges.join(ui.faint('·'))}${ui.faint(']')}` : '';
     return {
-      display: `${ui.faint(vendorCell)}  ${active ? ui.fg(ui.GLOW, '') : ''}${label}${tail}`,
+      display: `${ui.faint(vendorCell)}  ${active ? ui.fg(ui.GLOW, '') : ''}${label}${badgeTail(m, cfg)}`,
       plain: m.id,
     };
   };
+}
+
+/** Same row shape as makeRenderer, but for a picker already grouped under a
+ * per-provider header — a flat local-model id (no org prefix) skips the vendor
+ * cell entirely rather than repeating what the group header already says. An
+ * NVIDIA id's own org prefix (meta/, z-ai/, …) still varies within the group,
+ * so that one is kept. */
+function makeMergedRenderer(cfg) {
+  return (m, { query = '', active = false, frame = 0 } = {}) => {
+    if (m.pending) {
+      const spin = ui.spinnerFrames[frame % ui.spinnerFrames.length];
+      return { display: `  ${ui.faint(`${spin} looking…`)}`, plain: `${PROVIDERS[m.provider].label} looking` };
+    }
+    if (m.empty) {
+      return { display: `  ${ui.faint(m.reason || 'nothing found')}`, plain: `${PROVIDERS[m.provider].label} ${m.reason || ''}` };
+    }
+    if (m.synthetic) {
+      const text = 'enter your API key…';
+      const name = highlight(text, query);
+      return { display: `  ${ui.amber(active ? ui.bold(name) : name)}`, plain: `${PROVIDERS[m.provider].label} ${text}` };
+    }
+
+    const hasVendor = m.id.includes('/');
+    const rest = hasVendor ? m.id.slice(m.id.indexOf('/') + 1) : m.id;
+    const vendorCell = hasVendor ? `${ui.faint(ui.pad(ui.truncate(m.id.split('/')[0], VENDOR_W), VENDOR_W))}  ` : '';
+    const name = highlight(rest, query);
+    const label = active ? ui.bold(name) : name;
+    return {
+      display: `${vendorCell}${active ? ui.fg(ui.GLOW, '') : ''}${label}${badgeTail(m, cfg)}`,
+      plain: m.id,
+    };
+  };
+}
+
+// --- auto-discovery: no --provider given, so look at everything at once -----
+
+// Display order in the merged picker: local providers first (typically a
+// handful of models, and already right there on the machine), NVIDIA's much
+// larger catalog last — so it doesn't bury LM Studio/Ollama below the fold.
+const SCAN_ORDER = ['lmstudio', 'ollama', 'nvidia'];
+// Local servers can legitimately take a few seconds to enumerate installed
+// models (a busy machine, a large Ollama library, a cold LM Studio). The
+// picker shows a "looking…" placeholder per provider while this runs, so
+// there is no UX reason to race a tight deadline — only to eventually give
+// up on something that is truly stuck. A closed port fails via ECONNREFUSED
+// almost instantly regardless of this number.
+const SCAN_TIMEOUT_MS = { nvidia: 4000, lmstudio: 8000, ollama: 8000 };
+
+/** Probes one provider's catalog. Always resolves — never rejects or hangs past
+ * its timeout — so the caller can show every provider's status independently. */
+async function scanProvider(id, flags, cfg) {
+  let baseUrl;
+  try {
+    baseUrl = resolveBaseUrl(id, flags, cfg);
+  } catch {
+    return { provider: id, status: 'unreachable' };
+  }
+  const key = resolveApiKey(id, cfg);
+  if (PROVIDERS[id].requiresKey && !key) return { provider: id, baseUrl, key: null, status: 'locked' };
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), SCAN_TIMEOUT_MS[id] || 800);
+  try {
+    const models = await fetchModels(key, baseUrl, { signal: ac.signal });
+    return { provider: id, baseUrl, key, status: 'ready', models: filterCatalog(models.map((m) => ({ ...m, provider: id })), flags, cfg) };
+  } catch (err) {
+    if (flags.debug) process.stderr.write(`[palimorph] scan ${id} failed: ${err.message}\n`);
+    return { provider: id, baseUrl, key, status: 'unreachable' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Collects and saves an API key for a provider that needs one, mid-picker. */
+async function promptApiKey(providerId) {
+  ui.write(providerId === 'nvidia'
+    ? `\n  ${ui.slate('Paste the API key from')} ${ui.cyan('https://build.nvidia.com/')}${ui.slate('.')}\n\n`
+    : `\n  ${ui.slate(`Paste the API key for ${PROVIDERS[providerId].label}.`)}\n\n`);
+  const key = await prompt(`  ${ui.green(g.arrow)} key ${ui.faint('(hidden)')}: `, { silent: true });
+  if (!key) return null;
+  if (providerId === 'nvidia') saveConfig({ apiKey: key });
+  else {
+    const cfg = loadConfig();
+    saveConfig({ providers: { ...cfg.providers, [providerId]: { ...cfg.providers[providerId], apiKey: key } } });
+  }
+  return key;
+}
+
+const isSelectableEntry = (m) => !m.pending && !m.empty;
+
+/**
+ * Scans NVIDIA (if a key is already known), LM Studio, and Ollama at once and
+ * shows one merged picker so the user never has to pick a provider first. In a
+ * real terminal the picker opens immediately with a "looking…" placeholder per
+ * provider and fills in live as each scan settles — a slow or unreachable
+ * server never blocks the other two from showing up. A locked provider
+ * (NVIDIA with no key yet) gets one entry that prompts for the key on
+ * selection and re-scans, rather than being silently left out.
+ */
+async function pickFromAllProviders(flags) {
+  const interactive = Boolean(process.stdin.isTTY && process.stderr.isTTY);
+
+  for (;;) {
+    const cfg = loadConfig();
+    const state = new Map(SCAN_ORDER.map((id) => [id, { status: 'pending' }]));
+
+    const buildItems = () => {
+      const items = [];
+      for (const id of SCAN_ORDER) {
+        const st = state.get(id);
+        if (st.status === 'pending') items.push({ id: `__pending__:${id}`, provider: id, pending: true });
+        else if (st.status === 'locked') items.push({ id: `__login__:${id}`, provider: id, synthetic: true });
+        else if (st.status === 'unreachable') items.push({ id: `__empty__:${id}`, provider: id, empty: true, reason: 'unreachable' });
+        else if (!st.models.length) items.push({ id: `__empty__:${id}`, provider: id, empty: true, reason: 'no models found' });
+        else items.push(...st.models);
+      }
+      return items;
+    };
+
+    let notify = null;
+    // Kicked off before select() so a fast local server can resolve while the
+    // picker is still drawing its first frame — ranked within its own provider
+    // (not against the others) so the merged list stays grouped, not interleaved.
+    const scanPromises = SCAN_ORDER.map(async (id) => {
+      const result = await scanProvider(id, flags, cfg);
+      state.set(id, result.status === 'ready' ? { ...result, models: rankModels(result.models, cfg) } : result);
+      if (notify) notify(buildItems());
+    });
+
+    if (!interactive) await Promise.all(scanPromises); // no live redraw to fill in, so wait up front
+
+    const items = buildItems();
+    if (!interactive && !items.some(isSelectableEntry)) throw new Error('no-models');
+
+    let chosen;
+    try {
+      chosen = await select({
+        items,
+        label: 'all providers',
+        hint: `${ui.fg(ui.GREEN, ui.bold('tools'))} = verified ${g.dot} ${ui.fg(ui.GREEN, 'tools?')} = likely`,
+        render: makeMergedRenderer(cfg),
+        groupKey: (m) => PROVIDERS[m.provider].label,
+        isSelectable: isSelectableEntry,
+        subscribe: interactive ? (fn) => { notify = fn; } : undefined,
+      });
+    } catch {
+      return null; // user cancelled — distinct from "no-models"
+    }
+
+    await Promise.all(scanPromises); // settle everything before trusting state's baseUrl/key
+
+    if (!chosen.synthetic) {
+      const st = state.get(chosen.provider);
+      return { id: chosen.id, provider: chosen.provider, baseUrl: st.baseUrl, key: st.key };
+    }
+
+    const key = await promptApiKey(chosen.provider);
+    // The key prompt printed below the picker rather than over it, so clear
+    // before redrawing — otherwise each loop leaves the old frame behind and
+    // the picker appears to pile up instead of refreshing in place.
+    ui.write('\x1b[2J\x1b[H');
+    if (!key) continue; // back to the same picker
+  }
 }
 
 export async function main(argv) {
@@ -256,9 +439,8 @@ export async function main(argv) {
     const baseUrl = needBaseUrl();
     const key = needKey(provider, cfg);
     const list = await loadCatalog(key, flags, provider, baseUrl);
-    const view = providerView(cfg, provider);
-    for (const m of rankModels(list, view)) {
-      process.stdout.write(`${m.id}${supportsTools(m.id, provider) ? '\t[tools]' : ''}\n`);
+    for (const m of rankModels(list, cfg)) {
+      process.stdout.write(`${m.id}${supportsTools(m.id, m.provider) ? '\t[tools]' : ''}\n`);
     }
     return 0;
   }
@@ -291,36 +473,63 @@ export async function main(argv) {
   }
 
   // --- resolve which model to run ---
-  const baseUrl = needBaseUrl();
-  const key = needKey(provider, cfg);
-  const view = providerView(cfg, provider);
   let model = cmd && cmd !== 'proxy' ? cmd : null;
+  let baseUrl, key;
+
   if (!model && flags.last) {
-    model = view.lastModel;
+    model = providerView(cfg, provider).lastModel;
     if (!model) die('no previous model recorded yet — run palimorph and pick one.');
-  }
-  if (!model) {
-    const list = rankModels(await loadCatalog(key, flags, provider, baseUrl), view);
+    baseUrl = needBaseUrl();
+    key = needKey(provider, cfg);
+  } else if (!model && !flags.provider) {
+    // No explicit provider or model: look at NVIDIA (if a key is already known),
+    // LM Studio, and Ollama at once, and let the user pick from all of them.
+    let picked;
     try {
-      const chosen = await select({
-        items: list,
-        label: PROVIDERS[provider].label,
-        hint: `${ui.fg(ui.GREEN, ui.bold('tools'))} = verified ${g.dot} ${ui.fg(ui.GREEN, 'tools?')} = likely ${g.dot} ${ui.red('unavailable')} = not on your account`,
-        render: makeRenderer(view, provider),
-      });
-      model = chosen.id;
-    } catch {
+      picked = await pickFromAllProviders(flags);
+    } catch (err) {
+      if (err.message !== 'no-models') throw err;
+      die(
+        `${ui.bold('No models found on any provider.')}\n\n` +
+        `  ${ui.green(g.arrow)} run ${ui.bold('palimorph login')} for NVIDIA NIM, or\n` +
+        `  ${ui.green(g.arrow)} start LM Studio or Ollama locally and try again\n`
+      );
+    }
+    if (!picked) {
       ui.write(ui.note('cancelled\n'));
       return 130;
     }
+    model = picked.id;
+    provider = picked.provider;
+    baseUrl = picked.baseUrl;
+    key = picked.key;
+  } else {
+    baseUrl = needBaseUrl();
+    key = needKey(provider, cfg);
+    if (!model) {
+      const list = rankModels(await loadCatalog(key, flags, provider, baseUrl), cfg);
+      try {
+        const chosen = await select({
+          items: list,
+          label: PROVIDERS[provider].label,
+          hint: `${ui.fg(ui.GREEN, ui.bold('tools'))} = verified ${g.dot} ${ui.fg(ui.GREEN, 'tools?')} = likely ${g.dot} ${ui.red('unavailable')} = not on your account`,
+          render: makeRenderer(cfg),
+        });
+        model = chosen.id;
+      } catch {
+        ui.write(ui.note('cancelled\n'));
+        return 130;
+      }
+    }
   }
 
-  const smallModel = flags.small || cfg.smallModel || model;
-  const maxTokens = flags.maxTokens || cfg.maxTokens || null;
-  const contextTokens = flags.context || cfg.contextTokens || null;
-  const concurrency = flags.concurrency || cfg.concurrency || 1;
+  const freshCfg = loadConfig();
+  const smallModel = flags.small || freshCfg.smallModel || model;
+  const maxTokens = flags.maxTokens || freshCfg.maxTokens || null;
+  const contextTokens = flags.context || freshCfg.contextTokens || null;
+  const concurrency = flags.concurrency || freshCfg.concurrency || 1;
   const persist = { provider, lastModel: scopedKey(provider, model) };
-  if (flags.baseUrl) persist.providers = { ...cfg.providers, [provider]: { ...cfg.providers[provider], baseUrl: flags.baseUrl } };
+  if (flags.baseUrl) persist.providers = { ...freshCfg.providers, [provider]: { ...freshCfg.providers[provider], baseUrl: flags.baseUrl } };
   saveConfig(persist);
 
   if (cmd === 'proxy') {
@@ -345,7 +554,7 @@ export async function main(argv) {
 
   // Claude Code is useless without tool calls, and a family name does not prove
   // support — so the first time a model is used, ask it to make one.
-  let verdict = cfg.toolChecks[scopedKey(provider, model)];
+  let verdict = freshCfg.toolChecks[scopedKey(provider, model)];
   if (!verdict) {
     const spin = ui.spinner(`checking whether ${model} makes tool calls…`);
     verdict = await probeTools(key, model, baseUrl);

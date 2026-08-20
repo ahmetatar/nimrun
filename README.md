@@ -13,9 +13,10 @@
 
 ---
 
-Pick a model — from NVIDIA's NIM catalog, or a local LM Studio / Ollama server — and
-`palimorph` launches Claude Code wired to it. When that process exits, nothing is left
-behind — your Claude Code settings files are never touched.
+`palimorph` looks at NVIDIA's NIM catalog and any local LM Studio / Ollama server at
+once, lets you pick a model from whatever it finds, and launches Claude Code wired to
+it. When that process exits, nothing is left behind — your Claude Code settings files
+are never touched.
 
 ```bash
 npx palimorph
@@ -41,40 +42,51 @@ on the machine can reach it. It dies with the process.
 
 ## Setup
 
-`palimorph login` does **not** open a browser — NVIDIA has no OAuth flow for NIM, so the key
-is pasted once:
-
-1. Sign in at [build.nvidia.com](https://build.nvidia.com/models) (free account).
-2. Open any model page and use **Get API Key**.
-3. Copy the `nvapi-…` key.
-
-```bash
-palimorph login                    # stored at ~/.palimorph/config.json, mode 0600
-# or
-export NVIDIA_API_KEY=nvapi-…   # env always wins; never written to disk
-```
-
 Claude Code itself must be installed:
 
 ```bash
 npm i -g @anthropic-ai/claude-code
 ```
 
-### Local models (LM Studio / Ollama)
-
-No key needed — just start the local server and point `palimorph` at it:
+That's it if you already have [LM Studio](https://lmstudio.ai/) or [Ollama](https://ollama.com/)
+running locally — `palimorph` looks for both automatically, no key required:
 
 ```bash
-# LM Studio: start its local server (Developer tab, or `lms server start`), then
-palimorph --provider lmstudio
-
-# Ollama: start the daemon (`ollama serve`), then
-palimorph --provider ollama
+npx palimorph
 ```
 
-The provider choice is remembered for next time, so after the first run a plain `palimorph`
-reuses it. Use `--base-url <url>` to point at a non-default host/port, or
-`--provider custom --base-url <url>` for any other OpenAI-compatible server.
+For NVIDIA NIM, `palimorph login` does **not** open a browser — NVIDIA has no OAuth flow
+for NIM, so the key is pasted once:
+
+1. Sign in at [build.nvidia.com](https://build.nvidia.com/models) (free account).
+2. Open any model page and use **Get API Key**.
+3. Copy the `nvapi-…` key.
+
+```bash
+palimorph login                 # stored at ~/.palimorph/config.json, mode 0600
+# or
+export NVIDIA_API_KEY=nvapi-…   # env always wins; never written to disk
+```
+
+You don't need to run `login` up front, either — with no key yet, NVIDIA still shows up
+in the picker below, and selecting it prompts for the key right there.
+
+### Auto-discovery
+
+With no `--provider` flag, `palimorph` checks NVIDIA NIM (if a key is already known), LM
+Studio (`127.0.0.1:1234`), and Ollama (`127.0.0.1:11434`) at once, and shows everything it
+finds in a single picker — vendor column tells them apart. Nothing running locally and no
+NVIDIA key yet? You still get one entry to paste a key and go.
+
+```bash
+palimorph                        # look at everything, pick, launch
+palimorph --provider lmstudio    # skip discovery, go straight to LM Studio
+palimorph --provider ollama      # skip discovery, go straight to Ollama
+palimorph --provider custom --base-url http://host:port/v1   # any other OpenAI-compatible server
+```
+
+Whichever model you pick, the provider and base URL are remembered as your last pick — a
+plain `palimorph --last` reuses it without scanning again.
 
 ## Usage
 
@@ -109,7 +121,7 @@ Claude Code runs normally from here. On exit you get the tally, and the proxy is
 
 | Flag | Meaning |
 |---|---|
-| `--provider <id>` | `nvidia` (default), `lmstudio`, `ollama`, or `custom` |
+| `--provider <id>` | skip auto-discovery: `nvidia`, `lmstudio`, `ollama`, or `custom` |
 | `--base-url <url>` | override the endpoint (required for `--provider custom`) |
 | `--small <id>` | model for Claude Code's cheap background calls (titles, summaries) |
 | `--max-tokens <n>` | cap output tokens per response |

@@ -12,11 +12,12 @@ delete process.env.NVIDIA_API_KEY;
 delete process.env.NIM_API_KEY;
 
 const { PROVIDERS, resolveProvider, resolveBaseUrl, resolveApiKey, scopedKey, providerView, saveConfig, loadConfig } = await import('../src/config.js');
+const { rankModels } = await import('../src/models.js');
 
 // --- defaults ---
 assert.equal(resolveProvider({}, loadConfig()), 'nvidia', 'nvidia is the default provider');
-assert.equal(resolveBaseUrl('lmstudio', {}, loadConfig()), 'http://localhost:1234/v1');
-assert.equal(resolveBaseUrl('ollama', {}, loadConfig()), 'http://localhost:11434/v1');
+assert.equal(resolveBaseUrl('lmstudio', {}, loadConfig()), 'http://127.0.0.1:1234/v1');
+assert.equal(resolveBaseUrl('ollama', {}, loadConfig()), 'http://127.0.0.1:11434/v1');
 assert.throws(() => resolveBaseUrl('custom', {}, loadConfig()), /needs a --base-url/);
 assert.equal(resolveBaseUrl('custom', { baseUrl: 'http://box:8080/v1' }, loadConfig()), 'http://box:8080/v1');
 assert.throws(() => resolveProvider({ provider: 'bogus' }, loadConfig()), /unknown provider/);
@@ -50,6 +51,21 @@ assert.ok(ollamaView.toolChecks['llama3.1']?.ok);
 const nvidiaView = providerView(cfg, 'nvidia');
 assert.equal(nvidiaView.lastModel, cfg.lastModel, 'nvidia view is unscoped (same object)');
 assert.ok(nvidiaView.favorites.includes('meta/llama-3.3-70b-instruct'));
+
+// --- a merged multi-provider list never cross-matches identically-named models ---
+saveConfig({
+  lastModel: 'llama3.1', // an nvidia-scoped (bare) lastModel...
+  favorites: [],
+  toolChecks: {},
+});
+const mergedCfg = loadConfig();
+const merged = [
+  { id: 'llama3.1', provider: 'nvidia' },
+  { id: 'llama3.1', provider: 'ollama' }, // ...must not be treated as "last" for the ollama one
+];
+const rankedMerged = rankModels(merged, mergedCfg);
+assert.equal(rankedMerged[0].provider, 'nvidia', 'the bare lastModel only matches the nvidia entry');
+assert.notEqual(rankedMerged[0].id + ':' + rankedMerged[0].provider, rankedMerged[1].id + ':' + rankedMerged[1].provider);
 
 // --- createProxy talks to an explicit baseUrl for a non-NVIDIA provider ---
 const fake = http.createServer((req, res) => {

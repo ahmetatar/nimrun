@@ -11,8 +11,8 @@ export const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
 export const PROVIDERS = {
   nvidia: { label: 'NVIDIA NIM', defaultBaseUrl: DEFAULT_NIM_BASE_URL, requiresKey: true },
-  lmstudio: { label: 'LM Studio', defaultBaseUrl: 'http://localhost:1234/v1', requiresKey: false },
-  ollama: { label: 'Ollama', defaultBaseUrl: 'http://localhost:11434/v1', requiresKey: false },
+  lmstudio: { label: 'LM Studio', defaultBaseUrl: 'http://127.0.0.1:1234/v1', requiresKey: false },
+  ollama: { label: 'Ollama', defaultBaseUrl: 'http://127.0.0.1:11434/v1', requiresKey: false },
   custom: { label: 'custom', defaultBaseUrl: null, requiresKey: false },
 };
 

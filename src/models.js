@@ -1,4 +1,4 @@
-import { nimBaseUrl } from './config.js';
+import { nimBaseUrl, scopedKey } from './config.js';
 
 /**
  * build.nvidia.com's catalog is served verbatim by the NIM /v1/models endpoint,
@@ -23,7 +23,10 @@ function vendorOf(id) {
   return String(id).includes('/') ? String(id).split('/')[0] : 'nvidia';
 }
 
-// Endpoints on the same host that speak a different protocol than chat/completions.
+// Endpoints/models that speak a different protocol than chat/completions. Most of
+// these are NVIDIA-catalog family names, but the generic ones (embed, rerank, ocr…)
+// apply just as well to a local LM Studio/Ollama pull — e.g. "text-embedding-nomic-
+// embed-text" is a real, commonly auto-installed non-chat model on both.
 const NON_CHAT = [
   'embed', 'embedqa', 'rerank', 'retriever', 'nv-embed', 'nv-rerank',
   'ocdrnet', 'ocr', 'paddleocr', 'parakeet', 'riva', 'fastpitch',
@@ -33,8 +36,7 @@ const NON_CHAT = [
   'graphic-elements', 'page-elements', 'nemoretriever', 'depth',
 ];
 
-export function isChatModel(id, provider = 'nvidia') {
-  if (provider !== 'nvidia') return true; // local catalogs only list what's actually loaded/pulled
+export function isChatModel(id) {
   const s = String(id).toLowerCase();
   return !NON_CHAT.some((k) => s.includes(k));
 }
@@ -50,13 +52,22 @@ const TOOL_FAMILIES = [
   'stepfun-ai/step', 'poolside/laguna', 'thinkingmachines/', 'writer/palmyra',
 ];
 
+// Same idea as TOOL_FAMILIES, but for a local pull/download name: no vendor-prefix
+// structure to anchor on (a LM Studio/Ollama id is whatever the user named it), so
+// this matches anywhere in the string instead of only at the start.
+const LOCAL_TOOL_FAMILIES = [
+  'qwen', 'llama-3.1', 'llama-3.2', 'llama-3.3', 'llama3.1', 'llama3.2', 'llama3.3',
+  'mistral', 'mixtral', 'hermes', 'command-r', 'firefunction', 'glm', 'kimi',
+  'granite', 'gpt-oss', 'deepseek-v', 'phi-3.5', 'phi-4', 'phi3.5', 'phi4',
+];
+
 // Endpoints in those families that are not general chat models.
 const NOT_AGENTIC = ['guard', 'reward', 'safety', 'parse', 'calibration', '-vl-', '-vl', 'detector'];
 
 export function supportsTools(id, provider = 'nvidia') {
-  if (provider !== 'nvidia') return false; // no catalog-vendor heuristic for local models; probeTools decides
   const s = String(id).toLowerCase();
   if (NOT_AGENTIC.some((k) => s.includes(k))) return false;
+  if (provider !== 'nvidia') return LOCAL_TOOL_FAMILIES.some((k) => s.includes(k));
   return TOOL_FAMILIES.some((k) => s.startsWith(k));
 }
 
@@ -117,15 +128,19 @@ export async function probeTools(apiKey, model, baseUrl = nimBaseUrl(), { signal
 }
 
 // Ranks the picker so the models that actually survive an agentic session float up.
+// Every model must carry a `.provider` (single-provider callers tag it before
+// calling this); scoping through scopedKey means a merged multi-provider list can
+// never cross-match e.g. an nvidia lastModel against an identically-named ollama one.
 export function rankModels(models, { favorites = [], lastModel = null, toolChecks = {} } = {}) {
   const score = (m) => {
+    const key = scopedKey(m.provider, m.id);
     let n = 0;
-    if (m.id === lastModel) n += 1000;
-    if (favorites.includes(m.id)) n += 500;
-    const checked = toolChecks[m.id];
+    if (key === lastModel) n += 1000;
+    if (favorites.includes(key)) n += 500;
+    const checked = toolChecks[key];
     if (checked?.ok) n += 200;
     else if (checked && !checked.ok) n -= 400;
-    else if (supportsTools(m.id)) n += 100;
+    else if (supportsTools(m.id, m.provider)) n += 100;
     if (/coder|code/.test(m.id)) n += 20;
     return n;
   };
